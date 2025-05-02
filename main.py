@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import random
 import shutil
 import time
@@ -16,7 +17,15 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
-from config import env, ROOT_DIR
+from config import env, ROOT_DIR, ENABLE_DEBUG
+
+# ──────────────────────────────────────────────────────────────
+# 0.  Logging
+# ──────────────────────────────────────────────────────────────
+
+_logger = logging.getLogger(__name__)
+if ENABLE_DEBUG and not logging.getLogger().handlers:
+    logging.basicConfig(level=logging.DEBUG, format="%(levelname)s | %(message)s")
 
 # ──────────────────────────────────────────────────────────────
 # 1.  Configurable constants (all timings in seconds)
@@ -56,7 +65,7 @@ if TYPING_MODE not in ACCEPTED_TYPING_MODES:
     TYPING_MODE = "normal"
 
 # ──────────────────────────────────────────────────────────────
-# 2.  DOM selectors in one place
+# 2.  DOM selectors
 # ──────────────────────────────────────────────────────────────
 
 
@@ -71,7 +80,7 @@ class Locators:
     PROMPT_TEXTAREA_ID = "prompt-textarea"
     SUBMIT_BUTTON_ID = "composer-submit-button"
 
-    # *** Only assistant messages (excludes user bubbles) ***
+    # Assistant messages only (excludes user bubbles)
     ASSISTANT_BLOCK_XPATH = (
         "//div[@data-message-author-role='assistant']//div[contains(@class,'prose')]"
     )
@@ -107,12 +116,12 @@ class ClientConfig:
 
 class ChatGPTWebAutomator:
     """
-    Tiny wrapper around ChatGPT’s website that returns *complete* replies.
+    Tiny wrapper around ChatGPT’s website that returns **complete** replies.
 
     Typing speed is governed by ``ClientConfig.typing_mode``:
       • "normal" → human-like per-character delay using ``HUMAN_KEY_DELAY_MIN/MAX``
       • "fast"   → instant per-character typing (no delay)
-      • "paste"  → entire message inserted in one go
+      • "paste"  → entire message inserted in one go, safely converting newlines
     """
 
     HOME_URL = "https://chatgpt.com/"
@@ -142,7 +151,7 @@ class ChatGPTWebAutomator:
     def open_new_chat(self, model: str | None = None) -> None:
         """
         Navigate to a fresh ChatGPT conversation, optionally targeting
-        a specific *model* (e.g. ``model='o3'`` → ``https://chatgpt.com/?model=o3``).
+        a specific *model* (e.g. ``model='o3'``).
         """
         url = self.HOME_URL
         if model:
@@ -158,7 +167,7 @@ class ChatGPTWebAutomator:
 
     def send_message(self, prompt: str) -> List[str]:
         """
-        Type *prompt*, press Send, then block until any new assistant
+        Type *prompt*, press Send, then block until new assistant
         messages have completely streamed. Returns one ``str`` per block.
         """
         textarea = self._wait_visible(By.ID, Locators.PROMPT_TEXTAREA_ID)
@@ -179,7 +188,6 @@ class ChatGPTWebAutomator:
         try:
             self.driver.quit()
         finally:
-            # Only delete randomly-generated profiles (prefixed by mkdtemp).
             if self.cfg.profile_dir.exists() and "chatgpt_profile_" in str(
                 self.cfg.profile_dir
             ):
@@ -276,7 +284,7 @@ class ChatGPTWebAutomator:
 
         • normal – simulate human typing with random delays
         • fast   – character-by-character with no delay
-        • paste  – entire text sent in one keystroke
+        • paste  – entire text sent in one go with Shift-Enter for newlines
         """
         mode = self.cfg.typing_mode
 
@@ -286,16 +294,27 @@ class ChatGPTWebAutomator:
             else:
                 element.send_keys(ch)
 
+        # —— paste mode ————————————————————————
         if mode == "paste":
-            element.send_keys(text)
+            if ENABLE_DEBUG:
+                _logger.debug(
+                    "Typing prompt in paste mode (%d chars):\n%s", len(text), text
+                )
+            parts = text.split("\n")
+            if parts:
+                element.send_keys(parts[0])
+                for part in parts[1:]:
+                    element.send_keys(Keys.SHIFT, Keys.ENTER)
+                    element.send_keys(part)
             return
 
+        # —— fast mode ——————————————————————————
         if mode == "fast":
             for ch in text:
                 _send(ch)
             return
 
-        # normal typing (default)
+        # —— normal mode —————————————————————————
         lo, hi = self.cfg.key_delay_range
         for ch in text:
             _send(ch)
