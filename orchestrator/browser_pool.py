@@ -1,6 +1,7 @@
 import threading
 from typing import Dict, List
 
+from anyio import to_thread
 from orchestrator.browser_session import BrowserSession
 
 
@@ -43,8 +44,6 @@ class BrowserSessionPool:
         return {"browser_id": session.session_id, "answer": answer_chunks}
 
     async def ask_async(self, prompt: str, model: str | None = None):
-        import anyio
-
-        return await anyio.to_thread.run_sync(
+        return await to_thread.run_sync(
             self.ask, prompt, model, cancellable=True
         )

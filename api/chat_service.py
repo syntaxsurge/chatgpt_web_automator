@@ -54,6 +54,7 @@ _META_CLOSING_RE = re.compile(r"(</meta\s*prompt>)", re.IGNORECASE)
 app = FastAPI()
 browser_pool = BrowserSessionPool()
 
+
 # ──────────────────────────────────────────────────────────────
 #  POST /v1/chat/completions
 # ──────────────────────────────────────────────────────────────
@@ -100,7 +101,7 @@ async def completions(request: Request):
         messages = [m for m in messages if m.get("role") != "system"]
         if system_texts and messages:
             messages[-1]["content"] = (
-                "\n".join(system_texts) + "\n" + messages[-1]["content"]
+                    "\n".join(system_texts) + "\n" + messages[-1]["content"]
             )
 
     elif mode == "merge_post_user_instructions":

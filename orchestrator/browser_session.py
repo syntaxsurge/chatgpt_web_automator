@@ -1,6 +1,6 @@
-import uuid
 import threading
 import time
+import uuid
 
 from main import ChatGPTWebAutomator
 
