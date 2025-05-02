@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import platform
 import random
 import shutil
 import time
@@ -8,16 +9,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List
 
+import pyperclip
 import undetected_chromedriver as uc
 from fake_useragent import UserAgent
 from selenium.common.exceptions import StaleElementReferenceException
 from selenium.webdriver import Chrome, ChromeOptions
+from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
-from config import env, ROOT_DIR, ENABLE_DEBUG
+from config import ENABLE_DEBUG, ROOT_DIR, env
 
 # ──────────────────────────────────────────────────────────────
 # 0.  Logging
@@ -57,8 +60,9 @@ HUMAN_KEY_DELAY: tuple[float, float] = (
 )
 STREAM_SETTLE_TIME: float = env("STREAM_SETTLE_TIME", 0.8, cast=float)
 POLL_INTERVAL: float = env("POLL_INTERVAL", 0.20, cast=float)
+PASTE_CHUNK_SIZE: int = env("PASTE_CHUNK_SIZE", 50000, cast=int)
 
-# —— Unified typing-mode switch ————————————————————————————
+# —— typing-mode switch ——————————————————————————————————————
 ACCEPTED_TYPING_MODES: set[str] = {"normal", "fast", "paste"}
 TYPING_MODE: str = env("TYPING_MODE", "normal").lower()
 if TYPING_MODE not in ACCEPTED_TYPING_MODES:
@@ -106,7 +110,8 @@ class ClientConfig:
     key_delay_range: tuple[float, float] = HUMAN_KEY_DELAY
     stream_settle: float = STREAM_SETTLE_TIME
     poll_interval: float = POLL_INTERVAL
-    typing_mode: str = TYPING_MODE  # "normal" | "fast" | "paste"
+    typing_mode: str = TYPING_MODE  # normal | fast | paste
+    paste_chunk_size: int = PASTE_CHUNK_SIZE
 
 
 # ──────────────────────────────────────────────────────────────
@@ -116,17 +121,17 @@ class ClientConfig:
 
 class ChatGPTWebAutomator:
     """
-    Tiny wrapper around ChatGPT’s website that returns **complete** replies.
+    Minimal wrapper around ChatGPT’s web UI that returns **complete** replies.
 
     Typing speed is governed by ``ClientConfig.typing_mode``:
       • normal – human-like per-character delay
       • fast   – per-character with zero delay
-      • paste  – entire message injected via JavaScript in one operation
+      • paste  – clipboard copy followed by Ctrl/⌘+V paste
     """
 
     HOME_URL = "https://chatgpt.com/"
 
-    # —— life-cycle ————————————————————————————
+    # —— life-cycle ——————————————————————————————————————
 
     def __init__(
         self,
@@ -138,7 +143,7 @@ class ChatGPTWebAutomator:
         self.driver = self._launch_driver()
         self.wait = WebDriverWait(self.driver, self.cfg.explicit_timeout)
 
-        # Open the landing page immediately (login only if asked).
+        # Open landing page immediately (login only if asked).
         self.driver.get(self.HOME_URL)
         if self.cfg.auto_login:
             self._perform_login()
@@ -146,29 +151,27 @@ class ChatGPTWebAutomator:
         # Track how many assistant bubbles are on-screen.
         self._prev_count = len(self._assistant_blocks())
 
-    # —— explicit navigation per request ————————————————
+    # —— navigation per request ————————————————————————————
 
     def open_new_chat(self, model: str | None = None) -> None:
         """
-        Navigate to a fresh ChatGPT conversation, optionally targeting
-        a specific *model* (e.g. ``model='o3'``).
+        Navigate to a fresh conversation, optionally targeting *model*.
         """
         url = self.HOME_URL
         if model:
             url = f"{url}?model={model}"
         self.driver.get(url)
 
-        # Wait until the prompt box is present – this guarantees the page is
-        # ready for input – and reset the internal message counter.
+        # Ensure prompt box present then reset block counter.
         self._wait_visible(By.ID, Locators.PROMPT_TEXTAREA_ID)
         self._prev_count = len(self._assistant_blocks())
 
-    # —— public API ————————————————————————————
+    # —— public API ———————————————————————————————————————
 
     def send_message(self, prompt: str) -> List[str]:
         """
-        Type *prompt*, press Send, then block until new assistant
-        messages have completely streamed. Returns one ``str`` per block.
+        Type *prompt*, press Send, then block until assistant reply completes.
+        Returns one ``str`` per assistant message block.
         """
         textarea = self._wait_visible(By.ID, Locators.PROMPT_TEXTAREA_ID)
         self._human_type(textarea, prompt)
@@ -180,11 +183,10 @@ class ChatGPTWebAutomator:
         blocks = self._assistant_blocks()
         new_blocks = blocks[self._prev_count :]
         self._prev_count = len(blocks)
-
         return [blk.text.strip() for blk in new_blocks]
 
     def quit(self) -> None:
-        """Close Chrome and wipe any *temporary* profile we generated."""
+        """Close Chrome and wipe any *temporary* profile generated."""
         try:
             self.driver.quit()
         finally:
@@ -193,14 +195,14 @@ class ChatGPTWebAutomator:
             ):
                 shutil.rmtree(self.cfg.profile_dir, ignore_errors=True)
 
-    # Enable *with* … syntax
+    # Allow use as a context manager
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc, tb):
         self.quit()
 
-    # —— private helpers —————————————————————————
+    # —— private helpers ————————————————————————————————
 
     # 4-A. WebDriver bootstrap
     # ------------------------
@@ -208,7 +210,6 @@ class ChatGPTWebAutomator:
     def _launch_driver(self) -> Chrome:
         ua_string = UserAgent().random
 
-        # Ensure the profile directory exists before passing it to Chrome.
         profile = self.cfg.profile_dir
         profile.mkdir(parents=True, exist_ok=True)
 
@@ -222,12 +223,12 @@ class ChatGPTWebAutomator:
 
         driver: Chrome = uc.Chrome(options=opts, enable_cdp_events=True)
         driver.execute_script(
-            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+            "Object.defineProperty(navigator,'webdriver',{get:() => undefined})"
         )
         return driver
 
-    # 4-B. Login flow (optional)
-    # --------------------------
+    # 4-B. Optional login
+    # -------------------
 
     def _perform_login(self) -> None:
         print("🔐  Logging in…")
@@ -245,11 +246,7 @@ class ChatGPTWebAutomator:
 
     def _wait_stream_finished(self, start_index: int) -> None:
         """
-        Block until ChatGPT has fully streamed its reply.
-
-        The loop terminates only after (a) the assistant cursor ▍ disappears,
-        (b) the text has remained unchanged for ``stream_settle`` seconds, and
-        (c) the collected text is **non-empty**.
+        Wait until ChatGPT has fully streamed its reply.
         """
         last_snapshot = ""
         stable_since = time.monotonic()
@@ -262,8 +259,6 @@ class ChatGPTWebAutomator:
                 time.sleep(self.cfg.poll_interval / 2)
                 continue
 
-            # Abort early if nothing has yet been rendered – we should never
-            # conclude streaming while the assistant bubble is still empty.
             if not joined.strip():
                 last_snapshot = joined
                 stable_since = time.monotonic()
@@ -271,7 +266,6 @@ class ChatGPTWebAutomator:
                 continue
 
             has_cursor = joined.endswith("▍")
-
             if joined == last_snapshot and not has_cursor:
                 if time.monotonic() - stable_since >= self.cfg.stream_settle:
                     break
@@ -281,8 +275,8 @@ class ChatGPTWebAutomator:
 
             time.sleep(self.cfg.poll_interval)
 
-    # 4-D. Tiny wrappers around Selenium
-    # ----------------------------------
+    # 4-D. Selenium wrappers
+    # ----------------------
 
     def _assistant_blocks(self):
         return self.driver.find_elements(By.XPATH, Locators.ASSISTANT_BLOCK_XPATH)
@@ -293,34 +287,41 @@ class ChatGPTWebAutomator:
     def _click(self, by: By, locator: str) -> None:
         self.wait.until(EC.element_to_be_clickable((by, locator))).click()
 
+    # —— input helpers ————————————————————————————————
+
     def _human_type(self, element, text: str) -> None:
         """
-        Insert *text* into *element* following the configured typing mode.
+        Insert *text* into *element* according to typing mode.
 
-        • normal – simulate human typing with random delays
-        • fast   – character-by-character with no delay
-        • paste  – entire text injected in one go via JavaScript (fastest)
+        • normal – human-like per character delay
+        • fast   – blast entire text via send_keys
+        • paste  – copy to clipboard then paste with Ctrl/⌘+V
         """
         mode = self.cfg.typing_mode
 
-        # —— paste mode ————————————————————————
+        # —— paste mode —————————————————————————————
         if mode == "paste":
             if ENABLE_DEBUG:
-                _logger.debug(
-                    "Typing prompt in paste mode via JavaScript (%d chars)", len(text)
-                )
-            # Instantly set value and dispatch input event so React detects change.
-            self.driver.execute_script(
-                """
-                const el = arguments[0];
-                const val = arguments[1];
-                el.focus();
-                el.value = val;
-                el.dispatchEvent(new Event('input', { bubbles: true }));
-                """,
-                element,
-                text,
-            )
+                _logger.debug("Pasting via clipboard (%d chars)", len(text))
+
+            # Split huge inputs to avoid OS clipboard limits
+            chunk_size = max(1, self.cfg.paste_chunk_size)
+            ctrl_key = Keys.COMMAND if platform.system() == "Darwin" else Keys.CONTROL
+
+            # Ensure textarea has focus
+            element.click()
+            # Clear any existing content
+            element.send_keys(ctrl_key, "a")
+            element.send_keys(Keys.DELETE)
+
+            for i in range(0, len(text), chunk_size):
+                chunk = text[i : i + chunk_size]
+                pyperclip.copy(chunk)
+                # Use ActionChains to ensure key down/up sequence
+                ActionChains(self.driver).key_down(ctrl_key).send_keys("v").key_up(
+                    ctrl_key
+                ).perform()
+                time.sleep(0.05)  # allow React state update
             return
 
         # Helper for other modes
@@ -330,13 +331,12 @@ class ChatGPTWebAutomator:
             else:
                 element.send_keys(ch)
 
-        # —— fast mode ——————————————————————————
+        # —— fast mode ————————————————————————————
         if mode == "fast":
-            for ch in text:
-                _send(ch)
+            element.send_keys(text)
             return
 
-        # —— normal mode —————————————————————————
+        # —— normal mode ——————————————————————————
         lo, hi = self.cfg.key_delay_range
         for ch in text:
             _send(ch)
@@ -344,7 +344,7 @@ class ChatGPTWebAutomator:
 
 
 # ──────────────────────────────────────────────────────────────
-# 5.  Tiny CLI for manual testing
+# 5.  Simple CLI for manual testing
 # ──────────────────────────────────────────────────────────────
 
 
