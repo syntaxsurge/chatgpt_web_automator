@@ -58,7 +58,7 @@ HUMAN_KEY_DELAY: tuple[float, float] = (
 STREAM_SETTLE_TIME: float = env("STREAM_SETTLE_TIME", 0.8, cast=float)
 POLL_INTERVAL: float = env("POLL_INTERVAL", 0.20, cast=float)
 
-# —— New unified typing-mode switch ———————————————————————————
+# —— Unified typing-mode switch ————————————————————————————
 ACCEPTED_TYPING_MODES: set[str] = {"normal", "fast", "paste"}
 TYPING_MODE: str = env("TYPING_MODE", "normal").lower()
 if TYPING_MODE not in ACCEPTED_TYPING_MODES:
@@ -119,9 +119,9 @@ class ChatGPTWebAutomator:
     Tiny wrapper around ChatGPT’s website that returns **complete** replies.
 
     Typing speed is governed by ``ClientConfig.typing_mode``:
-      • "normal" → human-like per-character delay using ``HUMAN_KEY_DELAY_MIN/MAX``
-      • "fast"   → instant per-character typing (no delay)
-      • "paste"  → entire message inserted in one go, safely converting newlines
+      • normal – human-like per-character delay
+      • fast   – per-character with zero delay
+      • paste  – entire message injected via JavaScript in one operation
     """
 
     HOME_URL = "https://chatgpt.com/"
@@ -146,7 +146,7 @@ class ChatGPTWebAutomator:
         # Track how many assistant bubbles are on-screen.
         self._prev_count = len(self._assistant_blocks())
 
-    # —— NEW: explicit navigation per request ————————————————
+    # —— explicit navigation per request ————————————————
 
     def open_new_chat(self, model: str | None = None) -> None:
         """
@@ -299,29 +299,36 @@ class ChatGPTWebAutomator:
 
         • normal – simulate human typing with random delays
         • fast   – character-by-character with no delay
-        • paste  – entire text sent in one go with Shift-Enter for newlines
+        • paste  – entire text injected in one go via JavaScript (fastest)
         """
         mode = self.cfg.typing_mode
-
-        def _send(ch: str) -> None:
-            if ch == "\n":
-                element.send_keys(Keys.SHIFT, Keys.ENTER)
-            else:
-                element.send_keys(ch)
 
         # —— paste mode ————————————————————————
         if mode == "paste":
             if ENABLE_DEBUG:
                 _logger.debug(
-                    "Typing prompt in paste mode (%d chars):\n%s", len(text), text
+                    "Typing prompt in paste mode via JavaScript (%d chars)", len(text)
                 )
-            parts = text.split("\n")
-            if parts:
-                element.send_keys(parts[0])
-                for part in parts[1:]:
-                    element.send_keys(Keys.SHIFT, Keys.ENTER)
-                    element.send_keys(part)
+            # Instantly set value and dispatch input event so React detects change.
+            self.driver.execute_script(
+                """
+                const el = arguments[0];
+                const val = arguments[1];
+                el.focus();
+                el.value = val;
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                """,
+                element,
+                text,
+            )
             return
+
+        # Helper for other modes
+        def _send(ch: str) -> None:
+            if ch == "\n":
+                element.send_keys(Keys.SHIFT, Keys.ENTER)
+            else:
+                element.send_keys(ch)
 
         # —— fast mode ——————————————————————————
         if mode == "fast":
