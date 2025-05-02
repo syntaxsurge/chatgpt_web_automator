@@ -5,20 +5,23 @@ This repository demonstrates browser-based scraping and an OpenAI-compatible pro
 
 - - -
 
-## Table of Contents
-
-1.  [Key Features](#features)
-2.  [High-level Architecture](#architecture)
-3.  [Directory & File Overview](#directory)
-4.  [Environment Variables](#environment)
-5.  [HTTP API Schema](#api-schema)
-6.  [Payload & cURL Examples](#samples)
-7.  [Integrating into Your Codebase](#integration)
-8.  [Running & Deployment Guide](#deployment)
-9.  [Queueing & Concurrency Model](#queueing)
-10.  [Tokenisation Utility](#tokenisation)
-11.  [FAQ](#faq)
-12.  [License](#license)
+1. [Key Features](#key-features)  
+2. [High-level Architecture](#high-level-architecture)  
+3. [Directory & File Overview](#directory-file-overview)  
+4. [Environment Variables](#environment-variables)  
+5. [HTTP API Schema](#http-api-schema)  
+   1. [POST /v1/chat/completions](#v1chatcompletions-post)  
+      1. [Success Response (200)](#success-response-200)  
+   2. [GET /v1/models](#v1models-get)  
+6. [Payload & cURL Examples](#payload-curl-examples)  
+   1. [Basic chat completion](#basic-chat-completion)  
+   2. [Retrieve model list](#retrieve-model-list)  
+7. [Integrating into Your Codebase](#integrating-into-your-codebase)  
+8. [Running & Deployment Guide](#running-deployment-guide)  
+9. [Queueing & Concurrency Model](#queueing-concurrency-model)  
+10. [Tokenisation Utility](#tokenisation-utility)  
+11. [FAQ](#faq)  
+12. [License](#license)
 
 - - -
 
