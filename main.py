@@ -1,15 +1,3 @@
-"""
-chatgpt_web_automator.py
-------------------------
-
-Minimal Selenium wrapper around ChatGPT’s public UI that *reliably*
-captures complete, fully-streamed assistant replies.
-
-Author   : <your-name>
-Updated  : 2025-05-03
-Python   : 3.12+
-"""
-
 from __future__ import annotations
 
 import random
@@ -25,7 +13,6 @@ from fake_useragent import UserAgent
 from selenium.common.exceptions import StaleElementReferenceException  # NEW ✨
 from selenium.webdriver import Chrome, ChromeOptions
 from selenium.webdriver.common.by import By
-from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
@@ -34,13 +21,13 @@ from selenium.webdriver.support.ui import WebDriverWait
 # ──────────────────────────────────────────────────────────────
 
 CHROME_PROFILE_DIR: Path = Path("chromedata")  # existing folder with valid cookies
-AUTO_LOGIN: bool = False                       # set True if you *must* login each run
-HEADLESS_CHROME: bool = False                  # True => run invisibly
+AUTO_LOGIN: bool = False  # set True if you *must* login each run
+HEADLESS_CHROME: bool = False  # True => run invisibly
 
-EXPLICIT_WAIT_TIMEOUT = 15                     # used by Selenium waits
-HUMAN_KEY_DELAY = (0.08, 0.30)                 # random delay per keystroke
-STREAM_SETTLE_TIME = 0.8                       # how long the text must stay unchanged
-POLL_INTERVAL = 0.20                           # how often we re-read the DOM during streaming
+EXPLICIT_WAIT_TIMEOUT = 15  # used by Selenium waits
+HUMAN_KEY_DELAY = (0.08, 0.30)  # random delay per keystroke
+STREAM_SETTLE_TIME = 0.8  # how long the text must stay unchanged
+POLL_INTERVAL = 0.20  # how often we re-read the DOM during streaming
 
 
 # ──────────────────────────────────────────────────────────────
@@ -97,9 +84,9 @@ class ChatGPTWebAutomator:
     # —— life-cycle ————————————————————————————
 
     def __init__(
-        self,
-        config: ClientConfig | None = None,
-        creds: Credentials | None = None,
+            self,
+            config: ClientConfig | None = None,
+            creds: Credentials | None = None,
     ) -> None:
         self.cfg = config or ClientConfig()
         self.creds = creds or Credentials()
@@ -166,7 +153,7 @@ class ChatGPTWebAutomator:
             self.driver.quit()
         finally:
             if self.cfg.profile_dir.exists() and "chatgpt_profile_" in str(
-                self.cfg.profile_dir
+                    self.cfg.profile_dir
             ):
                 shutil.rmtree(self.cfg.profile_dir, ignore_errors=True)
 
@@ -282,7 +269,7 @@ def main() -> None:
             print("🤖  ChatGPT browser ready (Ctrl-C to quit)\n")
             while True:
                 prompt = input("You : ")
-                bot.open_new_chat(model="o3")        # manual test
+                bot.open_new_chat(model="o3")  # manual test
                 for chunk in bot.send_message(prompt):
                     print(f"Bot : {chunk}\n")
     except KeyboardInterrupt:
