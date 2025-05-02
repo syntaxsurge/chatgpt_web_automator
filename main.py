@@ -12,6 +12,7 @@ from fake_useragent import UserAgent
 from selenium.common.exceptions import StaleElementReferenceException
 from selenium.webdriver import Chrome, ChromeOptions
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
@@ -26,7 +27,7 @@ from config import env, ROOT_DIR
 def _resolve_profile_dir() -> Path:
     """
     Return an absolute path for the Chrome user-data directory.
-    
+
     If *CHROME_PROFILE_DIR* is a **relative** path, prefix it with the project
     *ROOT_DIR* so that the profile is found regardless of the current working
     directory used to launch the API.
@@ -49,6 +50,7 @@ HUMAN_KEY_DELAY: tuple[float, float] = (
 )
 STREAM_SETTLE_TIME: float = env("STREAM_SETTLE_TIME", 0.8, cast=float)
 POLL_INTERVAL: float = env("POLL_INTERVAL", 0.20, cast=float)
+FAST_TYPE: bool = env("FAST_TYPE", False, cast=bool)  # ⏩  true → no per-character delay
 
 
 # ──────────────────────────────────────────────────────────────
@@ -93,6 +95,7 @@ class ClientConfig:
     key_delay_range: tuple[float, float] = HUMAN_KEY_DELAY
     stream_settle: float = STREAM_SETTLE_TIME
     poll_interval: float = POLL_INTERVAL
+    fast_type: bool = FAST_TYPE
 
 
 # ──────────────────────────────────────────────────────────────
@@ -108,9 +111,9 @@ class ChatGPTWebAutomator:
     # —— life-cycle ————————————————————————————
 
     def __init__(
-            self,
-            config: ClientConfig | None = None,
-            creds: Credentials | None = None,
+        self,
+        config: ClientConfig | None = None,
+        creds: Credentials | None = None,
     ) -> None:
         self.cfg = config or ClientConfig()
         self.creds = creds or Credentials()
@@ -158,7 +161,7 @@ class ChatGPTWebAutomator:
         self._wait_stream_finished(self._prev_count)
 
         blocks = self._assistant_blocks()
-        new_blocks = blocks[self._prev_count:]
+        new_blocks = blocks[self._prev_count :]
         self._prev_count = len(blocks)
 
         return [blk.text.strip() for blk in new_blocks]
@@ -170,7 +173,7 @@ class ChatGPTWebAutomator:
         finally:
             # Only delete randomly-generated profiles (prefixed by mkdtemp).
             if self.cfg.profile_dir.exists() and "chatgpt_profile_" in str(
-                    self.cfg.profile_dir
+                self.cfg.profile_dir
             ):
                 shutil.rmtree(self.cfg.profile_dir, ignore_errors=True)
 
@@ -260,9 +263,26 @@ class ChatGPTWebAutomator:
         self.wait.until(EC.element_to_be_clickable((by, locator))).click()
 
     def _human_type(self, element, text: str) -> None:
+        """
+        Type *text* into *element*, honouring human-like delays unless
+        ``fast_type`` is enabled. Newlines are sent as Shift+Enter so they do
+        **not** submit the prompt prematurely.
+        """
         lo, hi = self.cfg.key_delay_range
+
+        def _send(ch: str) -> None:
+            if ch == "\n":
+                element.send_keys(Keys.SHIFT, Keys.ENTER)
+            else:
+                element.send_keys(ch)
+
+        if self.cfg.fast_type or (lo == hi == 0):
+            for ch in text:
+                _send(ch)
+            return
+
         for ch in text:
-            element.send_keys(ch)
+            _send(ch)
             time.sleep(random.uniform(lo, hi))
 
 
