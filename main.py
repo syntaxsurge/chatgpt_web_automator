@@ -30,6 +30,7 @@ _logger = logging.getLogger(__name__)
 if ENABLE_DEBUG and not logging.getLogger().handlers:
     logging.basicConfig(level=logging.DEBUG, format="%(levelname)s | %(message)s")
 
+
 # ──────────────────────────────────────────────────────────────
 # 1.  Configurable constants (all timings in seconds)
 # ──────────────────────────────────────────────────────────────
@@ -67,6 +68,7 @@ ACCEPTED_TYPING_MODES: set[str] = {"normal", "fast", "paste"}
 TYPING_MODE: str = env("TYPING_MODE", "normal").lower()
 if TYPING_MODE not in ACCEPTED_TYPING_MODES:
     TYPING_MODE = "normal"
+
 
 # ──────────────────────────────────────────────────────────────
 # 2.  DOM selectors
@@ -134,9 +136,9 @@ class ChatGPTWebAutomator:
     # —— life-cycle ——————————————————————————————————————
 
     def __init__(
-        self,
-        config: ClientConfig | None = None,
-        creds: Credentials | None = None,
+            self,
+            config: ClientConfig | None = None,
+            creds: Credentials | None = None,
     ) -> None:
         self.cfg = config or ClientConfig()
         self.creds = creds or Credentials()
@@ -181,7 +183,7 @@ class ChatGPTWebAutomator:
         self._wait_stream_finished(self._prev_count)
 
         blocks = self._assistant_blocks()
-        new_blocks = blocks[self._prev_count :]
+        new_blocks = blocks[self._prev_count:]
         self._prev_count = len(blocks)
         return [blk.text.strip() for blk in new_blocks]
 
@@ -191,7 +193,7 @@ class ChatGPTWebAutomator:
             self.driver.quit()
         finally:
             if self.cfg.profile_dir.exists() and "chatgpt_profile_" in str(
-                self.cfg.profile_dir
+                    self.cfg.profile_dir
             ):
                 shutil.rmtree(self.cfg.profile_dir, ignore_errors=True)
 
@@ -281,11 +283,11 @@ class ChatGPTWebAutomator:
     def _assistant_blocks(self):
         return self.driver.find_elements(By.XPATH, Locators.ASSISTANT_BLOCK_XPATH)
 
-    def _wait_visible(self, by: By, locator: str):
-        return self.wait.until(EC.visibility_of_element_located((by, locator)))
+    def _wait_visible(self, by: By | str, locator: str):
+        return self.wait.until(EC.visibility_of_element_located((str(by), locator)))
 
-    def _click(self, by: By, locator: str) -> None:
-        self.wait.until(EC.element_to_be_clickable((by, locator))).click()
+    def _click(self, by: By | str, locator: str) -> None:
+        self.wait.until(EC.element_to_be_clickable((str(by), locator))).click()
 
     # —— input helpers ————————————————————————————————
 
@@ -315,7 +317,7 @@ class ChatGPTWebAutomator:
             element.send_keys(Keys.DELETE)
 
             for i in range(0, len(text), chunk_size):
-                chunk = text[i : i + chunk_size]
+                chunk = text[i: i + chunk_size]
                 pyperclip.copy(chunk)
                 # Use ActionChains to ensure key down/up sequence
                 ActionChains(self.driver).key_down(ctrl_key).send_keys("v").key_up(
