@@ -2,49 +2,48 @@
 FastAPI proxy converting OpenAI-style ``/v1/chat/completions`` requests into browser
 automation jobs and returning a compatible JSON response.
 
-Running this file directly (``python -m api.chat_service`` or ``python api/chat_service.py``)
-now boots a production-ready Uvicorn server hosting the ``FastAPI`` app.
+Running this file directly (``python -m api.chat_service`` or
+``python api/chat_service.py``) spins up a production-ready Uvicorn server that
+hosts the ``FastAPI`` app.
 """
 
 from __future__ import annotations
 
 import json
-import os
 import re
 import time
 import uuid
 from pathlib import Path
 from typing import List, Optional
 
-from dotenv import load_dotenv
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 
+from config import env  # Centralised helper loads .env at import time
 from orchestrator.browser_pool import BrowserSessionPool
 from utils.tokenization import num_tokens
-
-# ──────────────────────────────────────────────────────────────
-#  Bootstrap
-# ──────────────────────────────────────────────────────────────
-
-load_dotenv()
-
-app = FastAPI()
-browser_pool = BrowserSessionPool()
 
 # ──────────────────────────────────────────────────────────────
 #  Constants & helpers
 # ──────────────────────────────────────────────────────────────
 
-ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
+ROOT_DIR: Path = Path(__file__).resolve().parent.parent
+ASSETS_DIR: Path = ROOT_DIR / "assets"
+
 with open(ASSETS_DIR / "fallback_models.json", encoding="utf-8") as fh:
     FALLBACK_MODELS: dict = json.load(fh)
 
-SYSTEM_PROMPT_MODE_DEFAULT: str = os.getenv("SYSTEM_PROMPT_MODE", "delete").lower()
+SYSTEM_PROMPT_MODE_DEFAULT: str = env("SYSTEM_PROMPT_MODE", "delete").lower()
 
 _UI_CLOSING_RE = re.compile(r"(</user_instructions>)", re.IGNORECASE)
 _META_CLOSING_RE = re.compile(r"(</meta\s*prompt>)", re.IGNORECASE)
 
+# ──────────────────────────────────────────────────────────────
+#  Application bootstrap
+# ──────────────────────────────────────────────────────────────
+
+app = FastAPI()
+browser_pool = BrowserSessionPool()
 
 # ──────────────────────────────────────────────────────────────
 #  POST /v1/chat/completions
@@ -54,8 +53,9 @@ _META_CLOSING_RE = re.compile(r"(</meta\s*prompt>)", re.IGNORECASE)
 @app.post("/v1/chat/completions")
 async def completions(request: Request):
     """
-    Accept an OpenAI chat payload, forward the flattened prompt to ChatGPT via a
-    headless browser, then return an OpenAI-style completion response.
+    Accept an OpenAI-compatible chat payload, forward the flattened prompt to
+    ChatGPT via a headless browser session, then return a matching JSON
+    response.
     """
     try:
         payload: dict = await request.json()
@@ -80,7 +80,7 @@ async def completions(request: Request):
         messages = [m for m in messages if m.get("role") != "system"]
         if system_texts and messages:
             messages[-1]["content"] = (
-                    "\n".join(system_texts) + "\n" + messages[-1]["content"]
+                "\n".join(system_texts) + "\n" + messages[-1]["content"]
             )
 
     elif mode == "merge_post_user_instructions":
@@ -113,19 +113,18 @@ async def completions(request: Request):
             else:
                 messages[-1]["content"] = f"{last_content}\n{combined}"
 
-    # else: "keep" - no modification
+    # else: "keep" – no modification
 
-    # ───── Flatten messages into single prompt ─────
+    # ───── Flatten messages into a single prompt string ─────
     prompt_string: str = "\n".join(m.get("content", "") for m in messages)
 
     model: Optional[str] = payload.get("model")
-    stream_requested: bool = bool(payload.get("stream", False))
-    if stream_requested:
+    if payload.get("stream", False):
         return JSONResponse(
             {"error": {"message": "stream=True not supported"}}, status_code=501
         )
 
-    # ───── Forward prompt to browser worker ─────
+    # ───── Forward prompt to browser worker pool ─────
     try:
         result = await browser_pool.ask_async(prompt_string, model)
         answer_chunks: List[str] = result["answer"]
@@ -176,7 +175,7 @@ async def completions(request: Request):
 @app.get("/v1/models")
 @app.get("/models")
 async def list_models():
-    """Return model list from assets when upstream is unavailable."""
+    """Return a static model list when upstream is unavailable."""
     return JSONResponse(FALLBACK_MODELS, status_code=200)
 
 
@@ -186,9 +185,7 @@ async def list_models():
 
 if __name__ == "__main__":
     import uvicorn
-    from config import env
 
-    # Allow basic runtime configuration via environment variables
     host: str = env("CHAT_SERVICE_HOST", "0.0.0.0")
     port: int = env("CHAT_SERVICE_PORT", 8000, cast=int)
     reload: bool = env("CHAT_SERVICE_RELOAD", False, cast=bool)
