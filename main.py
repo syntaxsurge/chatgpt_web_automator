@@ -85,6 +85,9 @@ class Locators:
     # Chat UI
     PROMPT_TEXTAREA_ID = "prompt-textarea"
     SUBMIT_BUTTON_ID = "composer-submit-button"
+    # Streaming controls
+    STOP_BUTTON_SELECTOR = "button[data-testid='stop-button']"
+    SEND_BUTTON_SELECTOR = "button[data-testid='send-button']"
 
     # Assistant messages only (excludes user bubbles)
     ASSISTANT_BLOCK_XPATH = (
@@ -249,11 +252,27 @@ class ChatGPTWebAutomator:
     def _wait_stream_finished(self, start_index: int) -> None:
         """
         Wait until ChatGPT has fully streamed its reply.
+
+        A reply is considered *complete* only after **both** of the following
+        are true:
+
+        1.  The UI stop button (``button[data-testid='stop-button']``) is no
+            longer present – indicating ChatGPT has stopped generating; **and**
+        2.  The assistant text has remained unchanged for
+            ``ClientConfig.stream_settle`` seconds without the trailing cursor.
+
+        This dual check prevents prematurely treating a reply as finished when
+        the text happens to pause mid-stream.
         """
         last_snapshot = ""
         stable_since = time.monotonic()
 
         while True:
+            # Presence of the stop button means streaming is still in progress.
+            streaming_busy = bool(
+                self.driver.find_elements(By.CSS_SELECTOR, Locators.STOP_BUTTON_SELECTOR)
+            )
+
             try:
                 blocks = self._assistant_blocks()[start_index:]
                 joined = "\n".join(blk.text for blk in blocks)
@@ -261,6 +280,7 @@ class ChatGPTWebAutomator:
                 time.sleep(self.cfg.poll_interval / 2)
                 continue
 
+            # Reset stability timer on empty snapshots (UI re-render, etc.).
             if not joined.strip():
                 last_snapshot = joined
                 stable_since = time.monotonic()
@@ -268,12 +288,17 @@ class ChatGPTWebAutomator:
                 continue
 
             has_cursor = joined.endswith("▍")
-            if joined == last_snapshot and not has_cursor:
-                if time.monotonic() - stable_since >= self.cfg.stream_settle:
-                    break
-            else:
+
+            # Any change in text, visible cursor, or ongoing streaming resets timer.
+            if streaming_busy or has_cursor or joined != last_snapshot:
                 last_snapshot = joined
                 stable_since = time.monotonic()
+                time.sleep(self.cfg.poll_interval)
+                continue
+
+            # No stop button, no cursor, and text stable long enough → done.
+            if time.monotonic() - stable_since >= self.cfg.stream_settle:
+                break
 
             time.sleep(self.cfg.poll_interval)
 
