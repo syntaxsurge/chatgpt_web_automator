@@ -22,7 +22,7 @@ This repository demonstrates browser-based scraping and an OpenAI-compatible pro
 
 - - -
 
-## 1 Key Features
+## Key Features
 
 *   **Browser automation** – controls a persistent or headless Chrome profile via Selenium & undetected-chromedriver.
 *   **OpenAI-style proxy** – exposes `/v1/chat/completions` & `/v1/models` so existing OpenAI SDK clients "just work”.
@@ -34,7 +34,7 @@ This repository demonstrates browser-based scraping and an OpenAI-compatible pro
 
 - - -
 
-## 2 High-level Architecture
+## High-level Architecture
 
 1.  **FastAPI server** receives OpenAI-compatible JSON.
 2.  Request is _flattened_ to plain prompt text and forwarded to `BrowserSessionPool`.
@@ -44,7 +44,7 @@ This repository demonstrates browser-based scraping and an OpenAI-compatible pro
 
 - - -
 
-## 3 Directory & File Overview
+## Directory & File Overview
 
 | Path | Purpose |
 | --- | --- |
@@ -60,7 +60,7 @@ This repository demonstrates browser-based scraping and an OpenAI-compatible pro
 
 - - -
 
-## 4 Environment Variables
+## Environment Variables
 
 All settings are consumed via `config.env(...)`; see `.env.example` for defaults.
 
@@ -79,7 +79,7 @@ All settings are consumed via `config.env(...)`; see `.env.example` for defaults
 
 - - -
 
-## 5 HTTP API Schema
+## HTTP API Schema
 
 ### /v1/chat/completions POST
 
@@ -131,7 +131,7 @@ Returns the static contents of `assets/fallback_models.json`; the list is kept r
 
 - - -
 
-## 6 Payload & cURL Examples
+## Payload & cURL Examples
 
 ### Basic chat completion
 
@@ -154,7 +154,7 @@ curl http://127.0.0.1:8000/v1/models | jq
 
 - - -
 
-## 7 Integrating into Your Codebase
+## Integrating into Your Codebase
 
 Most OpenAI client libraries allow a base URL override:
 
@@ -173,7 +173,7 @@ Because the proxy mirrors OpenAI’s schema, you can reuse existing retry/backof
 
 - - -
 
-## 8 Running & Deployment Guide
+## Running & Deployment Guide
 
 1.  **Install dependencies** (Python ≥ 3.11 recommended):  
     
@@ -203,7 +203,7 @@ Because the proxy mirrors OpenAI’s schema, you can reuse existing retry/backof
 
 - - -
 
-## 9 Queueing & Concurrency Model
+## Queueing & Concurrency Model
 
 All incoming HTTP requests are serialised onto a `BrowserSessionPool`:
 
@@ -216,7 +216,7 @@ If you expect very high throughput, you could shard by `model` or spin up multip
 
 - - -
 
-## 10 Tokenisation Utility
+## Tokenisation Utility
 
 `utils/tokenization.py` wraps `tiktoken` to count tokens for arbitrary models:
 
@@ -229,7 +229,7 @@ The helper falls back to `cl100k_base` when an unknown model is supplied.
 
 - - -
 
-## 11 FAQ
+## FAQ
 
 **Why not use the official OpenAI API?**
 
@@ -245,6 +245,6 @@ Not currently; the implementation would require response chunking and SSE.
 
 - - -
 
-## 12 License
+## License
 
 MIT License. See `LICENSE` file for full text.
