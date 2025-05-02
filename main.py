@@ -18,7 +18,6 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 from config import env, ROOT_DIR
 
-
 # ──────────────────────────────────────────────────────────────
 # 1.  Configurable constants (all timings in seconds)
 # ──────────────────────────────────────────────────────────────
@@ -28,9 +27,8 @@ def _resolve_profile_dir() -> Path:
     """
     Return an absolute path for the Chrome user-data directory.
 
-    If *CHROME_PROFILE_DIR* is a **relative** path, prefix it with the project
-    *ROOT_DIR* so that the profile is found regardless of the current working
-    directory used to launch the API.
+    If *CHROME_PROFILE_DIR* is relative, prefix it with *ROOT_DIR* so that the
+    profile is found regardless of the current working directory.
     """
     raw = env("CHROME_PROFILE_DIR", "chromedata")
     path = Path(raw).expanduser()
@@ -50,8 +48,12 @@ HUMAN_KEY_DELAY: tuple[float, float] = (
 )
 STREAM_SETTLE_TIME: float = env("STREAM_SETTLE_TIME", 0.8, cast=float)
 POLL_INTERVAL: float = env("POLL_INTERVAL", 0.20, cast=float)
-FAST_TYPE: bool = env("FAST_TYPE", False, cast=bool)  # ⏩  true → no per-character delay
 
+# —— New unified typing-mode switch ———————————————————————————
+ACCEPTED_TYPING_MODES: set[str] = {"normal", "fast", "paste"}
+TYPING_MODE: str = env("TYPING_MODE", "normal").lower()
+if TYPING_MODE not in ACCEPTED_TYPING_MODES:
+    TYPING_MODE = "normal"
 
 # ──────────────────────────────────────────────────────────────
 # 2.  DOM selectors in one place
@@ -95,7 +97,7 @@ class ClientConfig:
     key_delay_range: tuple[float, float] = HUMAN_KEY_DELAY
     stream_settle: float = STREAM_SETTLE_TIME
     poll_interval: float = POLL_INTERVAL
-    fast_type: bool = FAST_TYPE
+    typing_mode: str = TYPING_MODE  # "normal" | "fast" | "paste"
 
 
 # ──────────────────────────────────────────────────────────────
@@ -104,7 +106,14 @@ class ClientConfig:
 
 
 class ChatGPTWebAutomator:
-    """Tiny wrapper around ChatGPT’s website that returns *complete* replies."""
+    """
+    Tiny wrapper around ChatGPT’s website that returns *complete* replies.
+
+    Typing speed is governed by ``ClientConfig.typing_mode``:
+      • "normal" → human-like per-character delay using ``HUMAN_KEY_DELAY_MIN/MAX``
+      • "fast"   → instant per-character typing (no delay)
+      • "paste"  → entire message inserted in one go
+    """
 
     HOME_URL = "https://chatgpt.com/"
 
@@ -132,9 +141,8 @@ class ChatGPTWebAutomator:
 
     def open_new_chat(self, model: str | None = None) -> None:
         """
-        Navigate to a **fresh** ChatGPT conversation, optionally targeting
-        a specific model (e.g. ``model='o3'`` ➜
-        ``https://chatgpt.com/?model=o3``).
+        Navigate to a fresh ChatGPT conversation, optionally targeting
+        a specific *model* (e.g. ``model='o3'`` → ``https://chatgpt.com/?model=o3``).
         """
         url = self.HOME_URL
         if model:
@@ -150,8 +158,8 @@ class ChatGPTWebAutomator:
 
     def send_message(self, prompt: str) -> List[str]:
         """
-        Type *prompt*, press Send, then **block** until any *new* assistant
-        messages have completely streamed.  Returns one str per new block.
+        Type *prompt*, press Send, then block until any new assistant
+        messages have completely streamed. Returns one ``str`` per block.
         """
         textarea = self._wait_visible(By.ID, Locators.PROMPT_TEXTAREA_ID)
         self._human_type(textarea, prompt)
@@ -264,11 +272,13 @@ class ChatGPTWebAutomator:
 
     def _human_type(self, element, text: str) -> None:
         """
-        Type *text* into *element*, honouring human-like delays unless
-        ``fast_type`` is enabled. Newlines are sent as Shift+Enter so they do
-        **not** submit the prompt prematurely.
+        Insert *text* into *element* following the configured typing mode.
+
+        • normal – simulate human typing with random delays
+        • fast   – character-by-character with no delay
+        • paste  – entire text sent in one keystroke
         """
-        lo, hi = self.cfg.key_delay_range
+        mode = self.cfg.typing_mode
 
         def _send(ch: str) -> None:
             if ch == "\n":
@@ -276,11 +286,17 @@ class ChatGPTWebAutomator:
             else:
                 element.send_keys(ch)
 
-        if self.cfg.fast_type or (lo == hi == 0):
+        if mode == "paste":
+            element.send_keys(text)
+            return
+
+        if mode == "fast":
             for ch in text:
                 _send(ch)
             return
 
+        # normal typing (default)
+        lo, hi = self.cfg.key_delay_range
         for ch in text:
             _send(ch)
             time.sleep(random.uniform(lo, hi))
