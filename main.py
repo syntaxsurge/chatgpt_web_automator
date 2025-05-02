@@ -10,25 +10,29 @@ from typing import List
 
 import undetected_chromedriver as uc
 from fake_useragent import UserAgent
-from selenium.common.exceptions import StaleElementReferenceException  # NEW ✨
+from selenium.common.exceptions import StaleElementReferenceException
 from selenium.webdriver import Chrome, ChromeOptions
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
+from config import env
+
 # ──────────────────────────────────────────────────────────────
-# 1.  Tweak-me constants (all timings in seconds)
+# 1.  Configurable constants (all timings in seconds)
 # ──────────────────────────────────────────────────────────────
 
-CHROME_PROFILE_DIR: Path = Path("chromedata")  # existing folder with valid cookies
-AUTO_LOGIN: bool = False  # set True if you *must* login each run
-HEADLESS_CHROME: bool = False  # True => run invisibly
+CHROME_PROFILE_DIR: Path = Path(env("CHROME_PROFILE_DIR", "chromedata"))
+AUTO_LOGIN: bool = env("AUTO_LOGIN", False, cast=bool)
+HEADLESS_CHROME: bool = env("HEADLESS_CHROME", False, cast=bool)
 
-EXPLICIT_WAIT_TIMEOUT = 15  # used by Selenium waits
-HUMAN_KEY_DELAY = (0.08, 0.30)  # random delay per keystroke
-STREAM_SETTLE_TIME = 0.8  # how long the text must stay unchanged
-POLL_INTERVAL = 0.20  # how often we re-read the DOM during streaming
-
+EXPLICIT_WAIT_TIMEOUT: int = env("EXPLICIT_WAIT_TIMEOUT", 15, cast=int)
+HUMAN_KEY_DELAY: tuple[float, float] = (
+    env("HUMAN_KEY_DELAY_MIN", 0.08, cast=float),
+    env("HUMAN_KEY_DELAY_MAX", 0.30, cast=float),
+)
+STREAM_SETTLE_TIME: float = env("STREAM_SETTLE_TIME", 0.8, cast=float)
+POLL_INTERVAL: float = env("POLL_INTERVAL", 0.20, cast=float)
 
 # ──────────────────────────────────────────────────────────────
 # 2.  DOM selectors in one place
@@ -57,8 +61,8 @@ class Locators:
 
 @dataclass(slots=True)
 class Credentials:
-    email: str = "your_email@example.com"
-    password: str = "your_password_here"
+    email: str = env("CHATGPT_EMAIL", "your_email@example.com")
+    password: str = env("CHATGPT_PASSWORD", "your_password_here")
 
 
 @dataclass(slots=True)
@@ -84,9 +88,9 @@ class ChatGPTWebAutomator:
     # —— life-cycle ————————————————————————————
 
     def __init__(
-            self,
-            config: ClientConfig | None = None,
-            creds: Credentials | None = None,
+        self,
+        config: ClientConfig | None = None,
+        creds: Credentials | None = None,
     ) -> None:
         self.cfg = config or ClientConfig()
         self.creds = creds or Credentials()
@@ -108,9 +112,6 @@ class ChatGPTWebAutomator:
         Navigate to a **fresh** ChatGPT conversation, optionally targeting
         a specific model (e.g. ``model='o3'`` ➜
         ``https://chatgpt.com/?model=o3``).
-
-        This is invoked at the start of *every* queued request so we never
-        type into a stale conversation.
         """
         url = self.HOME_URL
         if model:
@@ -129,18 +130,13 @@ class ChatGPTWebAutomator:
         Type *prompt*, press Send, then **block** until any *new* assistant
         messages have completely streamed.  Returns one str per new block.
         """
-        # 1) enter the prompt + click send
         textarea = self._wait_visible(By.ID, Locators.PROMPT_TEXTAREA_ID)
         self._human_type(textarea, prompt)
         self._click(By.ID, Locators.SUBMIT_BUTTON_ID)
 
-        # 2) wait for at least one brand-new assistant bubble
         self.wait.until(lambda _: len(self._assistant_blocks()) > self._prev_count)
-
-        # 3) now poll until all *new* bubbles stop changing
         self._wait_stream_finished(self._prev_count)
 
-        # 4) slice out only the fresh blocks and update the cursor
         blocks = self._assistant_blocks()
         new_blocks = blocks[self._prev_count:]
         self._prev_count = len(blocks)
@@ -153,7 +149,7 @@ class ChatGPTWebAutomator:
             self.driver.quit()
         finally:
             if self.cfg.profile_dir.exists() and "chatgpt_profile_" in str(
-                    self.cfg.profile_dir
+                self.cfg.profile_dir
             ):
                 shutil.rmtree(self.cfg.profile_dir, ignore_errors=True)
 
@@ -166,8 +162,8 @@ class ChatGPTWebAutomator:
 
     # —— private helpers —————————————————————————
 
-    # 4-A.  WebDriver bootstrap
-    # -------------------------
+    # 4-A. WebDriver bootstrap
+    # ------------------------
 
     def _launch_driver(self) -> Chrome:
         ua_string = UserAgent().random
@@ -192,8 +188,8 @@ class ChatGPTWebAutomator:
         )
         return driver
 
-    # 4-B.  Login flow (optional)
-    # ---------------------------
+    # 4-B. Login flow (optional)
+    # --------------------------
 
     def _perform_login(self) -> None:
         print("🔐  Logging in…")
@@ -206,28 +202,20 @@ class ChatGPTWebAutomator:
         self._click(By.XPATH, Locators.PASSWORD_CONTINUE_XPATH)
         print("✅  Login successful.")
 
-    # 4-C.  Streaming detection
-    # -------------------------
+    # 4-C. Streaming detection
+    # ------------------------
 
     def _wait_stream_finished(self, start_index: int) -> None:
-        """
-        Poll the DOM until *all* assistant blocks from *start_index* onward
-        stay unchanged for cfg.stream_settle seconds (or until the cursor ▍
-        disappears).  Robust against dynamic re-renders that can invalidate
-        previous WebElement handles.
-        """
         last_snapshot = ""
         stable_since = time.monotonic()
 
         while True:
             try:
                 blocks = self._assistant_blocks()[start_index:]
-                # Build the combined text in one go; if any element goes stale
-                # we’ll jump to except and retry on the next poll.
                 joined = "\n".join(blk.text for blk in blocks)
             except StaleElementReferenceException:
                 time.sleep(self.cfg.poll_interval / 2)
-                continue  # re-try the loop on the next tick
+                continue
 
             has_cursor = joined.endswith("▍")
 
@@ -240,8 +228,8 @@ class ChatGPTWebAutomator:
 
             time.sleep(self.cfg.poll_interval)
 
-    # 4-D.  Tiny wrappers around Selenium
-    # -----------------------------------
+    # 4-D. Tiny wrappers around Selenium
+    # ----------------------------------
 
     def _assistant_blocks(self):
         return self.driver.find_elements(By.XPATH, Locators.ASSISTANT_BLOCK_XPATH)
