@@ -244,6 +244,13 @@ class ChatGPTWebAutomator:
     # ------------------------
 
     def _wait_stream_finished(self, start_index: int) -> None:
+        """
+        Block until ChatGPT has fully streamed its reply.
+
+        The loop terminates only after (a) the assistant cursor ▍ disappears,
+        (b) the text has remained unchanged for ``stream_settle`` seconds, and
+        (c) the collected text is **non-empty**.
+        """
         last_snapshot = ""
         stable_since = time.monotonic()
 
@@ -253,6 +260,14 @@ class ChatGPTWebAutomator:
                 joined = "\n".join(blk.text for blk in blocks)
             except StaleElementReferenceException:
                 time.sleep(self.cfg.poll_interval / 2)
+                continue
+
+            # Abort early if nothing has yet been rendered – we should never
+            # conclude streaming while the assistant bubble is still empty.
+            if not joined.strip():
+                last_snapshot = joined
+                stable_since = time.monotonic()
+                time.sleep(self.cfg.poll_interval)
                 continue
 
             has_cursor = joined.endswith("▍")
