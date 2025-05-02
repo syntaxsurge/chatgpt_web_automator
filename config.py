@@ -14,11 +14,11 @@ from dotenv import load_dotenv, dotenv_values
 ROOT_DIR: Path = Path(__file__).resolve().parent
 
 # Load the project-level .env file if present (values do **not** override
-# any already-exported environment variables).
+# already-exported environment variables).
 load_dotenv(ROOT_DIR / ".env", override=False)
 
 # ──────────────────────────────────────────────────────────────
-#  Public helper
+#  Public helpers
 # ──────────────────────────────────────────────────────────────
 
 
@@ -34,7 +34,7 @@ def env(key: str, default: Any = None, cast: type | None = str) -> Any:
     If *key* is missing or *cast* fails, *default* is returned instead.
     """
     raw = os.getenv(key)
-    if raw is None:  # Not set ➜ fall back immediately
+    if raw is None:  # not set → fall back immediately
         return default
 
     if cast is bool:  # specialised fast-path for booleans
@@ -47,13 +47,17 @@ def env(key: str, default: Any = None, cast: type | None = str) -> Any:
 
 
 # ──────────────────────────────────────────────────────────────
+#  Global debug flag
+# ──────────────────────────────────────────────────────────────
+
+ENABLE_DEBUG: bool = env("ENABLE_DEBUG", False, cast=bool)
+
+# ──────────────────────────────────────────────────────────────
 #  Optional debug dump of .env values
 # ──────────────────────────────────────────────────────────────
 
-_ENABLE_DEBUG: bool = env("ENABLE_DEBUG", False, cast=bool)  # noqa: N806
-
-if _ENABLE_DEBUG:
-    # Determine which file we ultimately loaded values from
+if ENABLE_DEBUG:
+    # Identify which file actually provided the values
     _env_file: Path = ROOT_DIR / ".env"
     if not _env_file.exists():
         _env_file = ROOT_DIR / ".env.example"
@@ -67,3 +71,5 @@ if _ENABLE_DEBUG:
     _logger = logging.getLogger("config")
     _dump = "\n".join(f"{k}={v}" for k, v in _values.items())
     _logger.debug("Loaded environment variables from %s:\n%s", _env_file.name, _dump)
+
+__all__ = ["ROOT_DIR", "env", "ENABLE_DEBUG"]

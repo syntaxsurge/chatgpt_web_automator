@@ -10,6 +10,7 @@ hosts the ``FastAPI`` app.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import time
 import uuid
@@ -19,9 +20,17 @@ from typing import List, Optional
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 
-from config import env  # Centralised helper loads .env at import time
+from config import ENABLE_DEBUG, env  # Centralised helper loads .env at import time
 from orchestrator.browser_pool import BrowserSessionPool
 from utils.tokenization import num_tokens
+
+# ──────────────────────────────────────────────────────────────
+#  Logging setup
+# ──────────────────────────────────────────────────────────────
+
+_logger = logging.getLogger(__name__)
+if ENABLE_DEBUG and not logging.getLogger().handlers:
+    logging.basicConfig(level=logging.DEBUG, format="%(levelname)s | %(message)s")
 
 # ──────────────────────────────────────────────────────────────
 #  Constants & helpers
@@ -57,6 +66,14 @@ async def completions(request: Request):
     ChatGPT via a headless browser session, then return a matching JSON
     response.
     """
+    if ENABLE_DEBUG:
+        _logger.debug(
+            "Incoming request: %s %s from %s",
+            request.method,
+            request.url.path,
+            request.client or "unknown",
+        )
+
     try:
         payload: dict = await request.json()
     except ValueError:
@@ -64,6 +81,9 @@ async def completions(request: Request):
             {"error": {"message": "Invalid JSON"}},
             status_code=status.HTTP_400_BAD_REQUEST,
         )
+
+    if ENABLE_DEBUG:
+        _logger.debug("Payload received:\n%s", json.dumps(payload, indent=2, ensure_ascii=False))
 
     # ───── Strip unsupported parameters ─────
     payload.pop("temperature", None)
@@ -164,6 +184,9 @@ async def completions(request: Request):
         },
     }
 
+    if ENABLE_DEBUG:
+        _logger.debug("Response body:\n%s", json.dumps(response_body, indent=2, ensure_ascii=False))
+
     return JSONResponse(response_body, status_code=200)
 
 
@@ -174,13 +197,20 @@ async def completions(request: Request):
 
 @app.get("/v1/models")
 @app.get("/models")
-async def list_models():
+async def list_models(request: Request):
     """Return a static model list when upstream is unavailable."""
+    if ENABLE_DEBUG:
+        _logger.debug(
+            "Incoming request: %s %s from %s",
+            request.method,
+            request.url.path,
+            request.client or "unknown",
+        )
     return JSONResponse(FALLBACK_MODELS, status_code=200)
 
 
 # ──────────────────────────────────────────────────────────────
-#  Main entrypoint
+#  Main entry-point
 # ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
