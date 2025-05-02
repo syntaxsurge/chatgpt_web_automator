@@ -5,7 +5,6 @@ import shutil
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from tempfile import mkdtemp
 from typing import List
 
 import undetected_chromedriver as uc
@@ -16,13 +15,30 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
-from config import env
+from config import env, ROOT_DIR
+
 
 # ──────────────────────────────────────────────────────────────
 # 1.  Configurable constants (all timings in seconds)
 # ──────────────────────────────────────────────────────────────
 
-CHROME_PROFILE_DIR: Path = Path(env("CHROME_PROFILE_DIR", "chromedata"))
+
+def _resolve_profile_dir() -> Path:
+    """
+    Return an absolute path for the Chrome user-data directory.
+    
+    If *CHROME_PROFILE_DIR* is a **relative** path, prefix it with the project
+    *ROOT_DIR* so that the profile is found regardless of the current working
+    directory used to launch the API.
+    """
+    raw = env("CHROME_PROFILE_DIR", "chromedata")
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        path = ROOT_DIR / path
+    return path.resolve()
+
+
+CHROME_PROFILE_DIR: Path = _resolve_profile_dir()
 AUTO_LOGIN: bool = env("AUTO_LOGIN", False, cast=bool)
 HEADLESS_CHROME: bool = env("HEADLESS_CHROME", False, cast=bool)
 
@@ -34,9 +50,11 @@ HUMAN_KEY_DELAY: tuple[float, float] = (
 STREAM_SETTLE_TIME: float = env("STREAM_SETTLE_TIME", 0.8, cast=float)
 POLL_INTERVAL: float = env("POLL_INTERVAL", 0.20, cast=float)
 
+
 # ──────────────────────────────────────────────────────────────
 # 2.  DOM selectors in one place
 # ──────────────────────────────────────────────────────────────
+
 
 class Locators:
     # Login page
@@ -59,6 +77,7 @@ class Locators:
 # 3.  Typed configuration containers
 # ──────────────────────────────────────────────────────────────
 
+
 @dataclass(slots=True)
 class Credentials:
     email: str = env("CHATGPT_EMAIL", "your_email@example.com")
@@ -80,6 +99,7 @@ class ClientConfig:
 # 4.  Main helper class
 # ──────────────────────────────────────────────────────────────
 
+
 class ChatGPTWebAutomator:
     """Tiny wrapper around ChatGPT’s website that returns *complete* replies."""
 
@@ -88,9 +108,9 @@ class ChatGPTWebAutomator:
     # —— life-cycle ————————————————————————————
 
     def __init__(
-        self,
-        config: ClientConfig | None = None,
-        creds: Credentials | None = None,
+            self,
+            config: ClientConfig | None = None,
+            creds: Credentials | None = None,
     ) -> None:
         self.cfg = config or ClientConfig()
         self.creds = creds or Credentials()
@@ -148,12 +168,13 @@ class ChatGPTWebAutomator:
         try:
             self.driver.quit()
         finally:
+            # Only delete randomly-generated profiles (prefixed by mkdtemp).
             if self.cfg.profile_dir.exists() and "chatgpt_profile_" in str(
-                self.cfg.profile_dir
+                    self.cfg.profile_dir
             ):
                 shutil.rmtree(self.cfg.profile_dir, ignore_errors=True)
 
-    # enable *with* … syntax
+    # Enable *with* … syntax
     def __enter__(self):
         return self
 
@@ -167,11 +188,9 @@ class ChatGPTWebAutomator:
 
     def _launch_driver(self) -> Chrome:
         ua_string = UserAgent().random
-        profile = (
-            self.cfg.profile_dir
-            if self.cfg.profile_dir.exists()
-            else Path(mkdtemp(prefix="chatgpt_profile_"))
-        )
+
+        # Ensure the profile directory exists before passing it to Chrome.
+        profile = self.cfg.profile_dir
         profile.mkdir(parents=True, exist_ok=True)
 
         opts = ChromeOptions()
@@ -250,6 +269,7 @@ class ChatGPTWebAutomator:
 # ──────────────────────────────────────────────────────────────
 # 5.  Tiny CLI for manual testing
 # ──────────────────────────────────────────────────────────────
+
 
 def main() -> None:
     try:
