@@ -11,6 +11,7 @@ from typing import List
 import pyperclip
 import undetected_chromedriver as uc
 from fake_useragent import UserAgent
+from markdownify import markdownify as md
 from selenium.common.exceptions import StaleElementReferenceException
 from selenium.webdriver import Chrome, ChromeOptions
 from selenium.webdriver.common.action_chains import ActionChains
@@ -104,14 +105,14 @@ class ChatGPTWebAutomator:
         if self._error_blocks():
             error_blocks = self._error_blocks()
             # Do not increment _prev_count so next interaction starts clean
-            return [blk.text.strip() for blk in error_blocks]
+            return [self._element_to_markdown(blk) for blk in error_blocks]
 
         self._wait_stream_finished(self._prev_count)
 
         blocks = self._assistant_blocks()
         new_blocks = blocks[self._prev_count :]
         self._prev_count = len(blocks)
-        return [blk.text.strip() for blk in new_blocks]
+        return [self._element_to_markdown(blk) for blk in new_blocks]
 
     def quit(self) -> None:
         """Close Chrome and wipe any *temporary* profile generated."""
@@ -237,6 +238,18 @@ class ChatGPTWebAutomator:
     def _error_blocks(self):
         """Return any visible ChatGPT error bubbles."""
         return self.driver.find_elements(By.XPATH, Locators.ERROR_BLOCK_XPATH)
+
+    # ------------------------------------------------------------------
+    # Markdown extraction helper
+    # ------------------------------------------------------------------
+    def _element_to_markdown(self, element) -> str:
+        """
+        Convert an assistant message *element* HTML into Markdown so that code
+        fences and other formatting are preserved.
+        """
+        html = element.get_attribute("innerHTML")
+        # Convert HTML to markdown and normalise line endings
+        return md(html or "").strip()
 
     def _wait_visible(self, by: By | str, locator: str):
         return self.wait.until(EC.visibility_of_element_located((str(by), locator)))
