@@ -54,6 +54,10 @@ class BrowserSession:
 
                 # Detect the standard ChatGPT network-error text.
                 joined = " ".join(chunks).lower()
+                # Detect ChatGPT length-limit error and propagate immediately
+                if "the message you submitted was too long" in joined:
+                    return ["ERROR"]
+
                 if "a network error occurred" in joined:
                     if _MAX_NETWORK_ERROR_RETRIES and attempts < _MAX_NETWORK_ERROR_RETRIES:
                         attempts += 1

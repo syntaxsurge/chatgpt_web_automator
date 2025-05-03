@@ -156,6 +156,31 @@ async def completions(request: Request):
         )
 
     assistant_reply: str = "".join(answer_chunks).strip()
+    # If browser layer signals an unrecoverable error, propagate a structured error response
+    if assistant_reply.lower() == "error":
+        completion_id: str = f"chatcmpl-{uuid.uuid4().hex[:27]}"
+        created_ts: int = int(time.time())
+        prompt_tokens: int = num_tokens(prompt_string, model)
+        response_body: dict = {
+            "id": completion_id,
+            "object": "chat.completion",
+            "created": created_ts,
+            "model": model or "browser",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "error"},
+                    "logprobs": None,
+                    "finish_reason": "error",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": 0,
+                "total_tokens": prompt_tokens,
+            },
+        }
+        return JSONResponse(response_body, status_code=500)
 
     # ───── Compute token usage ─────
     prompt_tokens: int = num_tokens(prompt_string, model)
