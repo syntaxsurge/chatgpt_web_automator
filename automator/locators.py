@@ -18,6 +18,11 @@ class Locators:
         "//div[@data-message-author-role='assistant']//div[contains(@class,'prose')]"
     )
 
+    # Optional "Thought for N seconds" lines emitted by some models
+    THOUGHT_SPAN_XPATH = (
+        "//div[@data-message-author-role='assistant']//span[contains(normalize-space(.),'Thought for')]"
+    )
+
     # Error bubbles rendered by ChatGPT (network / length / generic)
     # Error bubbles (e.g. "network error”, "message too long”) are rendered as
     # a coloured div with retry button.  Detect either the classic error class
