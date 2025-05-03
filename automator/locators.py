@@ -17,3 +17,9 @@ class Locators:
     ASSISTANT_BLOCK_XPATH = (
         "//div[@data-message-author-role='assistant']//div[contains(@class,'prose')]"
     )
+
+    # Error bubbles rendered by ChatGPT (network / length / generic)
+    ERROR_BLOCK_XPATH = (
+        "//div[contains(@class,'text-token-text-error') "
+        "and contains(@class,'border-token-surface-error')]"
+    )

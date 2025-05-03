@@ -36,6 +36,7 @@ _NETWORK_PATTERNS: set[str] = {
 _LENGTH_PATTERNS: set[str] = {
     "the message you submitted was too long",
     "message too long",
+    "the message you submitted was too long, please reload the conversation and submit something shorter",
 }
 
 # Genuine error bubbles are concise; anything longer than this is treated as a

@@ -93,7 +93,19 @@ class ChatGPTWebAutomator:
         self._human_type(textarea, prompt)
         self._click(By.ID, Locators.SUBMIT_BUTTON_ID)
 
-        self.wait.until(lambda _: len(self._assistant_blocks()) > self._prev_count)
+        # Wait until either a normal assistant block appears or an error bubble is rendered
+        self.wait.until(
+            lambda _:
+                len(self._assistant_blocks()) > self._prev_count
+                or self._error_blocks()
+        )
+
+        # If an error bubble is present, return its text immediately
+        if self._error_blocks():
+            error_blocks = self._error_blocks()
+            # Do not increment _prev_count so next interaction starts clean
+            return [blk.text.strip() for blk in error_blocks]
+
         self._wait_stream_finished(self._prev_count)
 
         blocks = self._assistant_blocks()
@@ -179,6 +191,9 @@ class ChatGPTWebAutomator:
         stable_since = time.monotonic()
 
         while True:
+            # Abort immediately if an error bubble is detected
+            if self._error_blocks():
+                break
             # Presence of the stop button means streaming is still in progress.
             streaming_busy = bool(
                 self.driver.find_elements(By.CSS_SELECTOR, Locators.STOP_BUTTON_SELECTOR)
@@ -218,6 +233,10 @@ class ChatGPTWebAutomator:
 
     def _assistant_blocks(self):
         return self.driver.find_elements(By.XPATH, Locators.ASSISTANT_BLOCK_XPATH)
+
+    def _error_blocks(self):
+        """Return any visible ChatGPT error bubbles."""
+        return self.driver.find_elements(By.XPATH, Locators.ERROR_BLOCK_XPATH)
 
     def _wait_visible(self, by: By | str, locator: str):
         return self.wait.until(EC.visibility_of_element_located((str(by), locator)))
