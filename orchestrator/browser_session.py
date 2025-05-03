@@ -1,5 +1,9 @@
+from __future__ import annotations
+
+import sys
 import threading
 import time
+import traceback
 import uuid
 from typing import List
 
@@ -21,10 +25,10 @@ class BrowserSession:
     """
 
     def __init__(self) -> None:
-        self.session_id = str(uuid.uuid4())
-        self._client = ChatGPTWebAutomator()
+        self.session_id: str = str(uuid.uuid4())
+        self._client: ChatGPTWebAutomator = ChatGPTWebAutomator()
         self._lock = threading.Lock()
-        self.last_used_at = time.monotonic()
+        self.last_used_at: float = time.monotonic()
 
     # ──────────────────────────────────────────────────────────
     # public API
@@ -35,33 +39,50 @@ class BrowserSession:
         Send *prompt* to ChatGPT (using the specified *model*) and block until
         the full reply is streamed.
 
-        Calls are serialized; if another thread is already interacting with
-        the browser, we wait our turn instead of spawning a new one.
+        All calls are serialised behind a lock so that exactly one browser
+        interaction happens at a time.
 
-        Error handling is delegated to :func:`utils.errors.detect_error`.
+        Any exception or recognised error type is **always** printed to
+        ``stderr`` with a complete stack trace and context, regardless of the
+        global debug flag.
         """
         attempts = 0
         with self._lock:
             while True:
                 self.last_used_at = time.monotonic()
-                # Always start a brand-new conversation so replies don’t bleed over.
-                self._client.open_new_chat(model)
-                chunks = self._client.send_message(prompt)
+
+                try:
+                    # Always start a brand-new conversation so replies don’t bleed.
+                    self._client.open_new_chat(model)
+                    chunks = self._client.send_message(prompt)
+                except Exception:  # pragma: no cover – runtime failure
+                    # Uncaught exception within Selenium or our wrapper
+                    print("\n" + "=" * 80, file=sys.stderr)
+                    print("Exception in BrowserSession.ask", file=sys.stderr)
+                    traceback.print_exc(file=sys.stderr)
+                    print("=" * 80 + "\n", file=sys.stderr)
+                    return ["ERROR"]
 
                 error_type = detect_error(chunks)
 
-                # Length errors are unrecoverable → propagate immediately
+                # —— unrecoverable errors ————————————————————————
                 if error_type in {ErrorType.LENGTH, ErrorType.GENERIC}:
+                    last_chunk = chunks[-1] if chunks else ""
+                    print(f"Unrecoverable error detected: {error_type.name}. "
+                          f"Last chunk: {last_chunk}", file=sys.stderr)
                     return ["ERROR"]
 
-                # Network errors may be transient → retry if allowed
+                # —— network errors (optional retry) —————————————————
                 if error_type == ErrorType.NETWORK:
+                    print(f"Network error detected "
+                          f"(attempt {attempts + 1}/{_MAX_NETWORK_ERROR_RETRIES}).",
+                          file=sys.stderr)
                     if _MAX_NETWORK_ERROR_RETRIES and attempts < _MAX_NETWORK_ERROR_RETRIES:
                         attempts += 1
                         continue
                     return ["ERROR"]
 
-                # No error detected → success
+                # —— success ————————————————————————————————
                 return chunks
 
     def shutdown(self) -> None:
