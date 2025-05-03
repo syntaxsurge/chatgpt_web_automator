@@ -1,0 +1,19 @@
+class Locators:
+    # Login page
+    EMAIL_INPUT_ID = ":r1:-email"
+    PASSWORD_INPUT_ID = ":re:-password"
+    EMAIL_CONTINUE_XPATH = "//*[@id=':r1:']/div[2]/button"
+    PASSWORD_CONTINUE_XPATH = "//*[@id=':re:']/div[2]/button"
+
+    # Chat UI
+    PROMPT_TEXTAREA_ID = "prompt-textarea"
+    SUBMIT_BUTTON_ID = "composer-submit-button"
+
+    # Streaming controls
+    STOP_BUTTON_SELECTOR = "button[data-testid='stop-button']"
+    SEND_BUTTON_SELECTOR = "button[data-testid='send-button']"
+
+    # Assistant messages only (excludes user bubbles)
+    ASSISTANT_BLOCK_XPATH = (
+        "//div[@data-message-author-role='assistant']//div[contains(@class,'prose')]"
+    )

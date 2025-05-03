@@ -3,11 +3,11 @@ import time
 import uuid
 from typing import List
 
-from main import ChatGPTWebAutomator
+from automator.web_automator import ChatGPTWebAutomator
 from config import env
+from utils.errors import ErrorType, detect_error
 
-
-# Maximum number of automatic retries for ChatGPT "network error” bubbles
+# Maximum number of automatic retries for ChatGPT network-error bubbles
 _MAX_NETWORK_ERROR_RETRIES: int = env("NETWORK_ERROR_RETRIES", 0, cast=int)
 
 
@@ -38,11 +38,7 @@ class BrowserSession:
         Calls are serialized; if another thread is already interacting with
         the browser, we wait our turn instead of spawning a new one.
 
-        If the ChatGPT UI returns a "network error” bubble, we automatically
-        retry the entire interaction up to *_MAX_NETWORK_ERROR_RETRIES* times.
-        After all retries are exhausted (or retries are disabled), a single
-        element list containing the literal string ``"ERROR"`` is returned so
-        the API layer can propagate a well-formed error payload.
+        Error handling is delegated to :func:`utils.errors.detect_error`.
         """
         attempts = 0
         with self._lock:
@@ -52,18 +48,20 @@ class BrowserSession:
                 self._client.open_new_chat(model)
                 chunks = self._client.send_message(prompt)
 
-                # Detect the standard ChatGPT network-error text.
-                joined = " ".join(chunks).lower()
-                # Detect ChatGPT length-limit error and propagate immediately
-                if "the message you submitted was too long" in joined:
+                error_type = detect_error(chunks)
+
+                # Length errors are unrecoverable → propagate immediately
+                if error_type in {ErrorType.LENGTH, ErrorType.GENERIC}:
                     return ["ERROR"]
 
-                if "a network error occurred" in joined:
+                # Network errors may be transient → retry if allowed
+                if error_type == ErrorType.NETWORK:
                     if _MAX_NETWORK_ERROR_RETRIES and attempts < _MAX_NETWORK_ERROR_RETRIES:
                         attempts += 1
                         continue
                     return ["ERROR"]
 
+                # No error detected → success
                 return chunks
 
     def shutdown(self) -> None:
