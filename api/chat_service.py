@@ -156,8 +156,13 @@ async def completions(request: Request):
         )
 
     assistant_reply: str = "".join(answer_chunks).strip()
+
     # If browser layer signals an unrecoverable error, propagate a structured error response
-    if assistant_reply.lower() == "error":
+    if assistant_reply.lower().startswith("error"):
+        # Extract the raw UI message after the sentinel (if present)
+        _, _, raw_msg = assistant_reply.partition(":")
+        error_msg = raw_msg.strip() or "error"
+
         completion_id: str = f"chatcmpl-{uuid.uuid4().hex[:27]}"
         created_ts: int = int(time.time())
         prompt_tokens: int = num_tokens(prompt_string, model)
@@ -169,7 +174,7 @@ async def completions(request: Request):
             "choices": [
                 {
                     "index": 0,
-                    "message": {"role": "assistant", "content": "error"},
+                    "message": {"role": "assistant", "content": error_msg},
                     "logprobs": None,
                     "finish_reason": "error",
                 }

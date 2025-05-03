@@ -19,7 +19,16 @@ class Locators:
     )
 
     # Error bubbles rendered by ChatGPT (network / length / generic)
+    # Error bubbles (e.g. "network error”, "message too long”) are rendered as
+    # a coloured div with retry button.  Detect either the classic error class
+    # combination *or* any div that contains the retry button data-test id.
     ERROR_BLOCK_XPATH = (
+        "("
         "//div[contains(@class,'text-token-text-error') "
         "and contains(@class,'border-token-surface-error')]"
+        ")"
+        " | "
+        "("
+        "//div[descendant::button[@data-testid='regenerate-thread-error-button']]"
+        ")"
     )

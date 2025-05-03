@@ -1,10 +1,8 @@
 """
 Robust error-handling helpers for browser session validation.
 
-The previous implementation could mis-classify normal assistant messages when
-the last chunk was a short string; the new logic only flags *exact* matches of
-the canonical ChatGPT error bubbles and exposes Enum values as strings to
-ensure cross-module equality.
+The logic detects ChatGPT UI error bubbles and classifies them so that the
+automation layer can decide whether to retry or abort.
 """
 
 from __future__ import annotations
@@ -14,33 +12,25 @@ from typing import List
 
 
 class ErrorType(str, Enum):
-    """
-    Categorisation of assistant failures emitted by the ChatGPT UI.
-
-    Using :class:`str` ensures that equality checks remain reliable across hot
-    reloads and serialisation boundaries.
-    """
-
+    """Categorisation of assistant failures emitted by the ChatGPT UI."""
     NONE = "none"
     NETWORK = "network"
     LENGTH = "length"
     GENERIC = "generic"
 
 
-# Canonical phrases that appear verbatim in ChatGPT error bubbles.
+# Canonical phrases that appear (often at the start of) ChatGPT error bubbles
 _NETWORK_PATTERNS: set[str] = {
     "a network error occurred",
     "network error",
 }
-
 _LENGTH_PATTERNS: set[str] = {
     "the message you submitted was too long",
     "message too long",
     "the message you submitted was too long, please reload the conversation and submit something shorter",
 }
 
-# Genuine error bubbles are concise; anything longer than this is treated as a
-# normal assistant reply.
+# Genuine error bubbles are concise; longer replies are treated as normal
 _MAX_ERROR_CHARS: int = 180
 
 
@@ -50,16 +40,19 @@ _MAX_ERROR_CHARS: int = 180
 
 
 def _canonical(text: str) -> str:
-    """
-    Return *text* lower-cased with surrounding whitespace and trailing
-    punctuation stripped so comparisons are reliable.
-    """
+    """Lower-case *text* and strip surrounding whitespace / trailing punctuation."""
     return text.strip().lower().rstrip(".! ")
 
 
 def _matches_exact(text: str, patterns: set[str]) -> bool:
     """Return ``True`` iff *text* exactly equals one of *patterns*."""
     return _canonical(text) in patterns
+
+
+def _matches_prefix(text: str, patterns: set[str]) -> bool:
+    """Return ``True`` if *text* starts with any *patterns* entry (canonicalised)."""
+    canon = _canonical(text)
+    return any(canon.startswith(p) for p in patterns)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -73,12 +66,6 @@ def detect_error(chunks: List[str]) -> ErrorType:
 
     Only the **final** chunk is considered authoritative so that a correct
     answer following a transient error bubble is not mis-classified.
-
-    Heuristics
-    ----------
-    * Empty *chunks* → :pydata:`ErrorType.GENERIC`
-    * Replies longer than ``_MAX_ERROR_CHARS`` → :pydata:`ErrorType.NONE`
-    * Otherwise, require an *exact* match against the curated phrase sets.
     """
     if not chunks:
         return ErrorType.GENERIC
@@ -91,7 +78,7 @@ def detect_error(chunks: List[str]) -> ErrorType:
 
     if _matches_exact(last, _LENGTH_PATTERNS):
         return ErrorType.LENGTH
-    if _matches_exact(last, _NETWORK_PATTERNS):
+    if _matches_exact(last, _NETWORK_PATTERNS) or _matches_prefix(last, _NETWORK_PATTERNS):
         return ErrorType.NETWORK
 
     return ErrorType.NONE

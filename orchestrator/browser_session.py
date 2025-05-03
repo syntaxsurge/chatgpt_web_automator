@@ -61,7 +61,8 @@ class BrowserSession:
                     print("Exception in BrowserSession.ask", file=sys.stderr)
                     traceback.print_exc(file=sys.stderr)
                     print("=" * 80 + "\n", file=sys.stderr)
-                    return ["ERROR"]
+                    last_chunk = chunks[-1] if chunks else "network error"
+                    return [f"error: {last_chunk}"]
 
                 error_type = detect_error(chunks)
 
@@ -70,7 +71,7 @@ class BrowserSession:
                     last_chunk = chunks[-1] if chunks else ""
                     print(f"Unrecoverable error detected: {error_type.name}. "
                           f"Last chunk: {last_chunk}", file=sys.stderr)
-                    return ["ERROR"]
+                    return [f"error: {last_chunk or error_type.name.lower()}"]
 
                 # —— network errors (optional retry) —————————————————
                 if error_type == ErrorType.NETWORK:
