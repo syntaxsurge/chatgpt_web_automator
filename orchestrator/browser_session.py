@@ -75,13 +75,17 @@ class BrowserSession:
 
                 # —— network errors (optional retry) —————————————————
                 if error_type == ErrorType.NETWORK:
-                    print(f"Network error detected "
-                          f"(attempt {attempts + 1}/{_MAX_NETWORK_ERROR_RETRIES}).",
-                          file=sys.stderr)
+                    last_chunk = chunks[-1] if chunks else ""
+                    print(
+                        f"Network error detected "
+                        f"(attempt {attempts + 1}/{_MAX_NETWORK_ERROR_RETRIES}). "
+                        f"Last chunk: {last_chunk}",
+                        file=sys.stderr,
+                    )
                     if _MAX_NETWORK_ERROR_RETRIES and attempts < _MAX_NETWORK_ERROR_RETRIES:
                         attempts += 1
                         continue
-                    return ["ERROR"]
+                    return [f"error: {last_chunk or error_type.name.lower()}"]
 
                 # —— success ————————————————————————————————
                 return chunks
