@@ -15,11 +15,12 @@ class ErrorType(Enum):
     GENERIC = auto()
 
 
-# Variations seen in ChatGPT UI bubbles
+# Explicit phrases that appear **verbatim** in ChatGPT error bubbles.
+# Substring matches are intentionally avoided to reduce false positives when
+# the assistant legitimately writes similar wording inside a normal reply.
 _NETWORK_PATTERNS = {
     "a network error occurred",
     "network error",
-    "something went wrong",  # guard for UI wording changes
 }
 
 _LENGTH_PATTERNS = {
@@ -28,25 +29,41 @@ _LENGTH_PATTERNS = {
 }
 
 
-def _matches(text: str, patterns: set[str]) -> bool:
-    text = text.lower()
-    return any(pat in text for pat in patterns)
+def _matches_exact(text: str, patterns: set[str]) -> bool:
+    """
+    Return ``True`` if *text* exactly equals any entry in *patterns* once
+    lower-cased and stripped of trailing punctuation.
+    """
+    simplified = text.lower().rstrip(".! ")
+    return simplified in patterns
 
 
 def detect_error(chunks: List[str]) -> ErrorType:
     """
     Inspect *chunks* and return the detected :class:`ErrorType`.
 
-    Only the **last** assistant chunk is considered so that a successful answer
-    following an earlier transient error does **not** trigger a false retry.
+    The **last** assistant chunk is considered authoritative so that a
+    successful answer following a transient error does not trigger a retry.
+
+    Heuristics
+    ----------
+    * Only very short chunks (≤ 120 characters) are eligible for automatic
+      error detection.  This prevents flagging normal, lengthy replies that
+      merely *mention* phrases like "network error" inside the content.
+    * A match must be an **exact** phrase equality against the curated sets
+      above, after case-folding and punctuation trimming.
     """
     if not chunks:
         return ErrorType.GENERIC
 
-    last = chunks[-1].lower()
+    last = chunks[-1].strip()
 
-    if _matches(last, _LENGTH_PATTERNS):
+    # Ignore long, meaningful replies – genuine error bubbles are concise.
+    if len(last) > 120:
+        return ErrorType.NONE
+
+    if _matches_exact(last, _LENGTH_PATTERNS):
         return ErrorType.LENGTH
-    if _matches(last, _NETWORK_PATTERNS):
+    if _matches_exact(last, _NETWORK_PATTERNS):
         return ErrorType.NETWORK
     return ErrorType.NONE
