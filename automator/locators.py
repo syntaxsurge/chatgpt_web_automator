@@ -31,4 +31,8 @@ class Locators:
         "("
         "//div[descendant::button[@data-testid='regenerate-thread-error-button']]"
         ")"
+        " | "
+        "("
+        "//p[normalize-space(.)='The message you submitted was too long, please reload the conversation and submit something shorter.']"
+        ")"
     )
