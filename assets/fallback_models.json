@@ -334,6 +334,10 @@
       "id": "o3"
     },
     {
+      "object": "model",
+      "id": "o4-mini-high"
+    },
+    {
       "id": "tts-1-hd",
       "object": "model",
       "created": 1699046015,
