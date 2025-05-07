@@ -1,18 +1,15 @@
 from __future__ import annotations
 
 import logging
-import platform
 import random
+import re
 import shutil
 import time
-import re
-from pathlib import Path
 from typing import List
 
 import pyperclip
 import undetected_chromedriver as uc
 from fake_useragent import UserAgent
-from markdownify import markdownify as md
 from selenium.common.exceptions import StaleElementReferenceException
 from selenium.webdriver import Chrome, ChromeOptions
 from selenium.webdriver.common.action_chains import ActionChains
@@ -22,8 +19,8 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
 from config import ENABLE_DEBUG
-from .models import ClientConfig, Credentials
 from .locators import Locators
+from .models import ClientConfig, Credentials
 
 # ──────────────────────────────────────────────────────────────
 # Logging
@@ -54,9 +51,9 @@ class ChatGPTWebAutomator:
     # —— life-cycle ————————————————————————————————————————————
 
     def __init__(
-        self,
-        config: ClientConfig | None = None,
-        creds: Credentials | None = None,
+            self,
+            config: ClientConfig | None = None,
+            creds: Credentials | None = None,
     ) -> None:
         self.cfg = config or ClientConfig()
         self.creds = creds or Credentials()
@@ -100,28 +97,28 @@ class ChatGPTWebAutomator:
         # Wait until either a normal assistant block appears or an error bubble is rendered
         self.wait.until(
             lambda _:
-                len(self._assistant_blocks()) > self._prev_count
-                or self._error_blocks()
+            len(self._assistant_blocks()) > self._prev_count
+            or self._error_blocks()
         )
 
         # If an error bubble is present, return its text immediately
         if self._error_blocks():
             error_blocks = self._error_blocks()
             # Do not increment _prev_count so next interaction starts clean
-            return [self._element_to_markdown(blk) for blk in error_blocks]
+            return [self._element_to_html_string(blk) for blk in error_blocks]
 
         self._wait_stream_finished(self._prev_count)
 
         blocks = self._assistant_blocks()
-        new_blocks = blocks[self._prev_count :]
+        new_blocks = blocks[self._prev_count:]
         self._prev_count = len(blocks)
 
         thought_blocks = self._thought_blocks()
-        new_thoughts = thought_blocks[self._prev_thought_count :]
+        new_thoughts = thought_blocks[self._prev_thought_count:]
         self._prev_thought_count = len(thought_blocks)
 
         thought_texts = [tb.text.strip() for tb in new_thoughts if tb.text.strip()]
-        assistant_texts = [self._element_to_markdown(blk) for blk in new_blocks]
+        assistant_texts = [self._element_to_html_string(blk) for blk in new_blocks]
 
         return thought_texts + assistant_texts
 
@@ -131,7 +128,7 @@ class ChatGPTWebAutomator:
             self.driver.quit()
         finally:
             if self.cfg.profile_dir.exists() and "chatgpt_profile_" in str(
-                self.cfg.profile_dir
+                    self.cfg.profile_dir
             ):
                 shutil.rmtree(self.cfg.profile_dir, ignore_errors=True)
 
@@ -242,26 +239,8 @@ class ChatGPTWebAutomator:
 
     # 4. Selenium wrappers
     # --------------------
-
-    def _assistant_blocks(self):
-        return self.driver.find_elements(By.XPATH, Locators.ASSISTANT_BLOCK_XPATH)
-
-    def _error_blocks(self):
-        """Return any visible ChatGPT error bubbles."""
-        return self.driver.find_elements(By.XPATH, Locators.ERROR_BLOCK_XPATH)
-
-    def _thought_blocks(self):
-        """Return any "Thought for N seconds” spans if present."""
-        return self.driver.find_elements(By.XPATH, Locators.THOUGHT_SPAN_XPATH)
-
-    # ------------------------------------------------------------------
-    # Markdown extraction helper
-    # ------------------------------------------------------------------
-    def _element_to_markdown(self, element) -> str:
-        """
-        Convert an assistant message *element* HTML into Markdown so that code
-        fences and other formatting are preserved.
-        """
+    @staticmethod
+    def _element_to_html_string(element) -> str:
         html = element.get_attribute("innerHTML") or ""
 
         # Remove language-label header and copy/edit toolbar divs added by ChatGPT UI
@@ -278,16 +257,25 @@ class ChatGPTWebAutomator:
             flags=re.S,
         )
 
-        markdown = md(html).strip()
-
         # Drop stray lines such as "xml”, "Copy”, "Edit”, etc.
         lines = [
             ln
-            for ln in markdown.splitlines()
+            for ln in html.splitlines()
             if ln.strip() not in {"xml", "Copy", "Edit", "CopyEdit"}
-            and not re.match(r"^\s*Copy\s*Edit\s*$", ln)
+               and not re.match(r"^\s*Copy\s*Edit\s*$", ln)
         ]
         return "\n".join(lines).strip()
+
+    def _assistant_blocks(self):
+        return self.driver.find_elements(By.XPATH, Locators.ASSISTANT_BLOCK_XPATH)
+
+    def _error_blocks(self):
+        """Return any visible ChatGPT error bubbles."""
+        return self.driver.find_elements(By.XPATH, Locators.ERROR_BLOCK_XPATH)
+
+    def _thought_blocks(self):
+        """Return any "Thought for N seconds” spans if present."""
+        return self.driver.find_elements(By.XPATH, Locators.THOUGHT_SPAN_XPATH)
 
     def _wait_visible(self, by: By | str, locator: str):
         return self.wait.until(EC.visibility_of_element_located((str(by), locator)))
@@ -324,7 +312,7 @@ class ChatGPTWebAutomator:
             element.send_keys(Keys.DELETE)
 
             for i in range(0, len(text), chunk_size):
-                chunk = text[i : i + chunk_size]
+                chunk = text[i: i + chunk_size]
                 pyperclip.copy(chunk)
                 # Use ActionChains to ensure key down/up sequence
                 ActionChains(self.driver).key_down(ctrl_key).send_keys("v").key_up(
