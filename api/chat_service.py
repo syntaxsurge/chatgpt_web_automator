@@ -1,10 +1,11 @@
 """
-FastAPI proxy converting OpenAI-style chat completion requests into browser
-automation jobs and returning a compatible JSON response.
+FastAPI proxy converting OpenAI-style chat completion and model requests into
+browser automation jobs and returning compatible JSON responses.
 
-Canonical endpoint is now **/chat/completions** (no version prefix); any
-version-prefixed paths are redirected with HTTP 307 so the original request
-method and body are preserved.
+Canonical endpoints are **/chat/completions** and **/models** – any version-
+prefixed paths (e.g. /v1/chat/completions, /v3/models, /version42/…) are
+transparently redirected via HTTP 307 so the original request method and body
+are preserved.
 """
 
 from __future__ import annotations
@@ -55,16 +56,15 @@ app = FastAPI()
 browser_pool = BrowserSessionPool()
 
 # ──────────────────────────────────────────────────────────────
-#  Core handler (unversioned)
+#  Core handler (unversioned chat completions)
 # ──────────────────────────────────────────────────────────────
 
 
 @app.post("/chat/completions", name="completions_no_version")
 async def _handle_completions(request: Request):
     """
-    Accept an OpenAI-compatible chat payload, forward the flattened prompt to
-    ChatGPT via a headless browser session, then return a matching JSON
-    response.
+    Accept an OpenAI-compatible chat payload, forward it to ChatGPT via a
+    headless browser session, then return a matching JSON response.
     """
     if ENABLE_DEBUG:
         _logger.debug(
@@ -220,32 +220,23 @@ async def _handle_completions(request: Request):
 
 
 # ──────────────────────────────────────────────────────────────
-#  Redirects for version-prefixed paths
+#  Redirects for version-prefixed chat completions paths
 # ──────────────────────────────────────────────────────────────
 
 
 @app.post("/v{version:int}/chat/completions", name="completions_redirect_v")
 @app.post("/version{version:int}/chat/completions", name="completions_redirect_version")
 async def _redirect_completions(version: int):
-    """
-    Redirect any POST to /vN/chat/completions or /versionN/chat/completions to
-    the canonical /chat/completions endpoint (HTTP 307 to preserve method).
-    """
+    """Redirect any version-prefixed completions path to /chat/completions."""
     return RedirectResponse(url="/chat/completions", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
 
 # ──────────────────────────────────────────────────────────────
-#  GET /v1/models  (and legacy /models)
+#  Model list endpoints and redirects
 # ──────────────────────────────────────────────────────────────
 
 
-@app.get("/v1/models")
-async def list_models_redirect():
-    """Redirect version-prefixed /v1/models to canonical /models."""
-    return RedirectResponse(url="/models", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
-
-
-@app.get("/models")
+@app.get("/models", name="models_no_version")
 async def list_models(request: Request):
     """Return a static model list when upstream is unavailable."""
     if ENABLE_DEBUG:
@@ -256,6 +247,13 @@ async def list_models(request: Request):
             request.client or "unknown",
         )
     return JSONResponse(FALLBACK_MODELS, status_code=200)
+
+
+@app.get("/v{version:int}/models", name="models_redirect_v")
+@app.get("/version{version:int}/models", name="models_redirect_version")
+async def _redirect_models(version: int):
+    """Redirect any version-prefixed models path to /models."""
+    return RedirectResponse(url="/models", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
 
 # ──────────────────────────────────────────────────────────────
