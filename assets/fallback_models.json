@@ -335,6 +335,10 @@
     },
     {
       "object": "model",
+      "id": "gpt-4-5"
+    },
+    {
+      "object": "model",
       "id": "o4-mini-high"
     },
     {
