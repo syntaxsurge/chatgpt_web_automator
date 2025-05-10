@@ -1,10 +1,10 @@
 """
-FastAPI proxy converting OpenAI-style ``/v1/chat/completions`` requests into browser
+FastAPI proxy converting OpenAI-style chat completion requests into browser
 automation jobs and returning a compatible JSON response.
 
-Running this file directly (``python -m api.chat_service`` or
-``python api/chat_service.py``) spins up a production-ready Uvicorn server that
-hosts the ``FastAPI`` app.
+Canonical endpoint is now **/chat/completions** (no version prefix); any
+version-prefixed paths are redirected with HTTP 307 so the original request
+method and body are preserved.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from fastapi import FastAPI, Request, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from config import ENABLE_DEBUG, env  # Centralised helper loads .env at import time
 from orchestrator.browser_pool import BrowserSessionPool
@@ -54,14 +54,13 @@ _META_CLOSING_RE = re.compile(r"(</meta\s*prompt>)", re.IGNORECASE)
 app = FastAPI()
 browser_pool = BrowserSessionPool()
 
-
 # ──────────────────────────────────────────────────────────────
-#  POST /v1/chat/completions
+#  Core handler (unversioned)
 # ──────────────────────────────────────────────────────────────
 
 
-@app.post("/v1/chat/completions")
-async def completions(request: Request):
+@app.post("/chat/completions", name="completions_no_version")
+async def _handle_completions(request: Request):
     """
     Accept an OpenAI-compatible chat payload, forward the flattened prompt to
     ChatGPT via a headless browser session, then return a matching JSON
@@ -101,7 +100,7 @@ async def completions(request: Request):
         messages = [m for m in messages if m.get("role") != "system"]
         if system_texts and messages:
             messages[-1]["content"] = (
-                    "\n".join(system_texts) + "\n" + messages[-1]["content"]
+                "\n".join(system_texts) + "\n" + messages[-1]["content"]
             )
 
     elif mode == "merge_post_user_instructions":
@@ -157,9 +156,8 @@ async def completions(request: Request):
 
     assistant_reply: str = "".join(answer_chunks).strip()
 
-    # If browser layer signals an unrecoverable error, propagate a structured error response
+    # If browser layer signals an unrecoverable error, propagate structured error
     if assistant_reply.lower().startswith("error"):
-        # Extract the raw UI message after the sentinel (if present)
         _, _, raw_msg = assistant_reply.partition(":")
         error_msg = raw_msg.strip() or "error"
 
@@ -222,11 +220,31 @@ async def completions(request: Request):
 
 
 # ──────────────────────────────────────────────────────────────
+#  Redirects for version-prefixed paths
+# ──────────────────────────────────────────────────────────────
+
+
+@app.post("/v{version:int}/chat/completions", name="completions_redirect_v")
+@app.post("/version{version:int}/chat/completions", name="completions_redirect_version")
+async def _redirect_completions(version: int):
+    """
+    Redirect any POST to /vN/chat/completions or /versionN/chat/completions to
+    the canonical /chat/completions endpoint (HTTP 307 to preserve method).
+    """
+    return RedirectResponse(url="/chat/completions", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+
+
+# ──────────────────────────────────────────────────────────────
 #  GET /v1/models  (and legacy /models)
 # ──────────────────────────────────────────────────────────────
 
 
 @app.get("/v1/models")
+async def list_models_redirect():
+    """Redirect version-prefixed /v1/models to canonical /models."""
+    return RedirectResponse(url="/models", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+
+
 @app.get("/models")
 async def list_models(request: Request):
     """Return a static model list when upstream is unavailable."""
