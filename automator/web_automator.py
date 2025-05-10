@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import random
-import re
 import shutil
 import time
 from typing import List
@@ -65,9 +64,8 @@ class ChatGPTWebAutomator:
         if self.cfg.auto_login:
             self._perform_login()
 
-        # Track how many assistant bubbles and thought lines are on-screen.
+        # Track how many assistant bubbles are on-screen.
         self._prev_count = len(self._assistant_blocks())
-        self._prev_thought_count = len(self._thought_blocks())
 
     # —— navigation per request ————————————————————————————
 
@@ -78,10 +76,9 @@ class ChatGPTWebAutomator:
         url = self.HOME_URL if not model else f"{self.HOME_URL}?model={model}"
         self.driver.get(url)
 
-        # Ensure prompt box is present then reset block counters.
+        # Ensure prompt box is present then reset block counter.
         self._wait_visible(By.ID, Locators.PROMPT_TEXTAREA_ID)
         self._prev_count = len(self._assistant_blocks())
-        self._prev_thought_count = len(self._thought_blocks())
 
     # —— public API ———————————————————————————————————————
 
@@ -105,22 +102,14 @@ class ChatGPTWebAutomator:
         if self._error_blocks():
             error_blocks = self._error_blocks()
             # Do not increment _prev_count so next interaction starts clean
-            return [self._element_to_html_string(blk) for blk in error_blocks]
+            return [blk.text.strip() for blk in error_blocks]
 
         self._wait_stream_finished(self._prev_count)
 
         blocks = self._assistant_blocks()
         new_blocks = blocks[self._prev_count:]
         self._prev_count = len(blocks)
-
-        thought_blocks = self._thought_blocks()
-        new_thoughts = thought_blocks[self._prev_thought_count:]
-        self._prev_thought_count = len(thought_blocks)
-
-        thought_texts = [tb.text.strip() for tb in new_thoughts if tb.text.strip()]
-        assistant_texts = [self._element_to_html_string(blk) for blk in new_blocks]
-
-        return thought_texts + assistant_texts
+        return [blk.text.strip() for blk in new_blocks]
 
     def quit(self) -> None:
         """Close Chrome and wipe any *temporary* profile generated."""
@@ -239,32 +228,6 @@ class ChatGPTWebAutomator:
 
     # 4. Selenium wrappers
     # --------------------
-    @staticmethod
-    def _element_to_html_string(element) -> str:
-        html = element.get_attribute("innerHTML") or ""
-
-        # Remove language-label header and copy/edit toolbar divs added by ChatGPT UI
-        html = re.sub(
-            r'<div[^>]*flex[^>]*items-center[^>]*text-token-text-secondary[^>]*>.*?</div>',
-            "",
-            html,
-            flags=re.S,
-        )
-        html = re.sub(
-            r'<div[^>]*absolute[^>]*end-0[^>]*bottom-0[^>]*>.*?</div>',
-            "",
-            html,
-            flags=re.S,
-        )
-
-        # Drop stray lines such as "xml”, "Copy”, "Edit”, etc.
-        lines = [
-            ln
-            for ln in html.splitlines()
-            if ln.strip() not in {"xml", "Copy", "Edit", "CopyEdit"}
-               and not re.match(r"^\s*Copy\s*Edit\s*$", ln)
-        ]
-        return "\n".join(lines).strip()
 
     def _assistant_blocks(self):
         return self.driver.find_elements(By.XPATH, Locators.ASSISTANT_BLOCK_XPATH)
@@ -272,10 +235,6 @@ class ChatGPTWebAutomator:
     def _error_blocks(self):
         """Return any visible ChatGPT error bubbles."""
         return self.driver.find_elements(By.XPATH, Locators.ERROR_BLOCK_XPATH)
-
-    def _thought_blocks(self):
-        """Return any "Thought for N seconds” spans if present."""
-        return self.driver.find_elements(By.XPATH, Locators.THOUGHT_SPAN_XPATH)
 
     def _wait_visible(self, by: By | str, locator: str):
         return self.wait.until(EC.visibility_of_element_located((str(by), locator)))
