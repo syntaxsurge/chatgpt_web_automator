@@ -9,6 +9,7 @@ from typing import List
 
 from automator.web_automator import ChatGPTWebAutomator
 from config import env
+from utils.audio import play_ringtone
 from utils.errors import ErrorType, detect_error
 
 # Maximum number of automatic retries for ChatGPT network-error bubbles
@@ -56,12 +57,11 @@ class BrowserSession:
                     self._client.open_new_chat(model)
                     chunks = self._client.send_message(prompt)
                 except Exception:  # pragma: no cover – runtime failure
-                    # Uncaught exception within Selenium or our wrapper
                     print("\n" + "=" * 80, file=sys.stderr)
                     print("Exception in BrowserSession.ask", file=sys.stderr)
                     traceback.print_exc(file=sys.stderr)
                     print("=" * 80 + "\n", file=sys.stderr)
-                    last_chunk = chunks[-1] if chunks else "network error"
+                    last_chunk = chunks[-1] if "chunks" in locals() and chunks else "network error"
                     return [f"error: {last_chunk}"]
 
                 error_type = detect_error(chunks)
@@ -69,8 +69,11 @@ class BrowserSession:
                 # —— unrecoverable errors ————————————————————————
                 if error_type in {ErrorType.LENGTH, ErrorType.GENERIC}:
                     last_chunk = chunks[-1] if chunks else ""
-                    print(f"Unrecoverable error detected: {error_type.name}. "
-                          f"Last chunk: {last_chunk}", file=sys.stderr)
+                    print(
+                        f"Unrecoverable error detected: {error_type.name}. "
+                        f"Last chunk: {last_chunk}",
+                        file=sys.stderr,
+                    )
                     return [f"error: {last_chunk or error_type.name.lower()}"]
 
                 # —— network errors (optional retry) —————————————————
@@ -88,6 +91,7 @@ class BrowserSession:
                     return [f"error: {last_chunk or error_type.name.lower()}"]
 
                 # —— success ————————————————————————————————
+                play_ringtone(duration=2.0)  # 2-second confirmation tone
                 return chunks
 
     def shutdown(self) -> None:

@@ -1,2 +1,2 @@
 """Utility subpackage for shared helpers."""
-__all__ = ["tokenization"]
+__all__ = ["tokenization", "audio"]
