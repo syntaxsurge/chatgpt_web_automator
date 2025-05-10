@@ -14,6 +14,8 @@ from utils.errors import ErrorType, detect_error
 
 # Maximum number of automatic retries for ChatGPT network-error bubbles
 _MAX_NETWORK_ERROR_RETRIES: int = env("NETWORK_ERROR_RETRIES", 0, cast=int)
+# Toggle for 2-second confirmation tone after successful replies
+_ENABLE_RINGTONES: bool = env("ENABLE_RINGTONES", True, cast=bool)
 
 
 class BrowserSession:
@@ -91,7 +93,8 @@ class BrowserSession:
                     return [f"error: {last_chunk or error_type.name.lower()}"]
 
                 # —— success ————————————————————————————————
-                play_ringtone(duration=2.0)  # 2-second confirmation tone
+                if _ENABLE_RINGTONES:
+                    play_ringtone(duration=2.0)  # 2-second confirmation tone
                 return chunks
 
     def shutdown(self) -> None:
