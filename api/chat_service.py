@@ -56,14 +56,19 @@ _META_CLOSING_RE = re.compile(r"(</meta\s*prompt>)", re.IGNORECASE)
 app = FastAPI()
 
 # —— CORS middleware ——————————————————————————————————————————
-# Allow configurable origins for browser-based clients; enables
-# successful OPTIONS preflight requests to all endpoints.
+# Enable CORS (including Private Network Access) so browser-based tools like
+# Cursor can call the local FastAPI proxy at http://127.0.0.1:8000 without
+# Chrome blocking the request with:
+# "Access to private networks is forbidden”.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in env("CORS_ALLOW_ORIGINS", "*").split(",")],
     allow_credentials=env("CORS_ALLOW_CREDENTIALS", True, cast=bool),
     allow_methods=["*"],
     allow_headers=["*"],
+    # The critical flag that adds `Access-Control-Allow-Private-Network: true`
+    # to successful pre-flight responses.
+    allow_private_network=env("CORS_ALLOW_PRIVATE_NETWORK", True, cast=bool),
 )
 
 browser_pool = BrowserSessionPool()
