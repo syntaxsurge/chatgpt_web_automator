@@ -132,6 +132,7 @@ async def _handle_completions(request: Request):
 
     # ───── Strip unsupported parameters ─────
     payload.pop("temperature", None)
+    payload.pop("stream", None)
 
     # ───── Manipulate messages list ─────
     mode: str = SYSTEM_PROMPT_MODE_DEFAULT.replace("-", "_")
