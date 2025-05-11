@@ -16,13 +16,13 @@ import re
 import time
 import uuid
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 
-from config import ENABLE_DEBUG, env  # Centralised helper loads .env at import time
+from config import ENABLE_DEBUG, env
 from orchestrator.browser_pool import BrowserSessionPool
 from utils.tokenization import num_tokens
 
@@ -35,7 +35,41 @@ if ENABLE_DEBUG and not logging.getLogger().handlers:
     logging.basicConfig(level=logging.DEBUG, format="%(levelname)s | %(message)s")
 
 # ──────────────────────────────────────────────────────────────
-#  Constants & helpers
+#  Helper utilities
+# ──────────────────────────────────────────────────────────────
+
+
+def _content_to_str(content: Any) -> str:
+    """
+    Convert an OpenAI ChatCompletion message *content* field to plain text.
+
+    Supports:
+    • plain ``str`` content
+    • list variants (image_url + text) where textual parts are concatenated
+    • all other types fallback to ``str()`` conversion
+    """
+    if isinstance(content, str):
+        return content
+
+    if isinstance(content, list):
+        chunks: list[str] = []
+        for part in content:
+            # Standard multimodal message part: {"type":"text","text":"…"}
+            if isinstance(part, dict):
+                if part.get("type") == "text":
+                    chunks.append(str(part.get("text", "")))
+                # Ignore image_url and unknown types for prompt purposes
+            elif isinstance(part, str):
+                chunks.append(part)
+            else:
+                chunks.append(str(part))
+        return "".join(chunks)
+
+    return str(content)
+
+
+# ──────────────────────────────────────────────────────────────
+#  Constants & regex
 # ──────────────────────────────────────────────────────────────
 
 ROOT_DIR: Path = Path(__file__).resolve().parent.parent
@@ -56,8 +90,6 @@ _META_CLOSING_RE = re.compile(r"(</meta\s*prompt>)", re.IGNORECASE)
 app = FastAPI()
 
 # —— CORS middleware ——————————————————————————————————————————
-# Allow configurable origins for browser-based clients; enables
-# successful OPTIONS preflight requests to all endpoints.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in env("CORS_ALLOW_ORIGINS", "*").split(",")],
@@ -105,6 +137,10 @@ async def _handle_completions(request: Request):
     mode: str = SYSTEM_PROMPT_MODE_DEFAULT.replace("-", "_")
     messages: List[dict] = payload.get("messages", [])
 
+    # Convert content variants to string immediately for easier manipulation
+    for m in messages:
+        m["content"] = _content_to_str(m.get("content", ""))
+
     if mode == "delete":
         messages = [m for m in messages if m.get("role") != "system"]
 
@@ -112,22 +148,18 @@ async def _handle_completions(request: Request):
         system_texts = [m["content"] for m in messages if m.get("role") == "system"]
         messages = [m for m in messages if m.get("role") != "system"]
         if system_texts and messages:
-            messages[-1]["content"] = (
-                "\n".join(system_texts) + "\n" + messages[-1]["content"]
-            )
+            messages[-1]["content"] = "\n".join(system_texts) + "\n" + messages[-1]["content"]
 
     elif mode == "merge_post_user_instructions":
         system_texts = [m["content"] for m in messages if m.get("role") == "system"]
         messages = [m for m in messages if m.get("role") != "system"]
         if system_texts and messages:
             combined = "\n".join(system_texts)
-            last_content = messages[-1]["content"]
+            last_content: str = messages[-1]["content"]
             match = _UI_CLOSING_RE.search(last_content)
             if match:
                 idx = match.end()
-                messages[-1]["content"] = (
-                    f"{last_content[:idx]}\n{combined}\n{last_content[idx:]}"
-                )
+                messages[-1]["content"] = f"{last_content[:idx]}\n{combined}\n{last_content[idx:]}"
             else:
                 messages[-1]["content"] = f"{combined}\n{last_content}"
 
@@ -136,20 +168,18 @@ async def _handle_completions(request: Request):
         messages = [m for m in messages if m.get("role") != "system"]
         if system_texts and messages:
             combined = "\n".join(system_texts)
-            last_content = messages[-1]["content"]
+            last_content: str = messages[-1]["content"]
             matches = list(_META_CLOSING_RE.finditer(last_content))
             if matches:
                 idx = matches[-1].end()
-                messages[-1]["content"] = (
-                    f"{last_content[:idx]}\n{combined}\n{last_content[idx:]}"
-                )
+                messages[-1]["content"] = f"{last_content[:idx]}\n{combined}\n{last_content[idx:]}"
             else:
                 messages[-1]["content"] = f"{last_content}\n{combined}"
 
-    # else: "keep" – no modification
+    # else: keep – no modification
 
     # ───── Flatten messages into a single prompt string ─────
-    prompt_string: str = "\n".join(m.get("content", "") for m in messages)
+    prompt_string: str = "\n".join(m["content"] for m in messages)
 
     model: Optional[str] = payload.get("model")
     if payload.get("stream", False):
@@ -161,7 +191,7 @@ async def _handle_completions(request: Request):
     try:
         result = await browser_pool.ask_async(prompt_string, model)
         answer_chunks: List[str] = result["answer"]
-    except Exception as exc:  # pragma: no cover – runtime error
+    except Exception as exc:  # pragma: no cover
         return JSONResponse(
             {"error": {"message": f"Browser worker error: {exc}"}},
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -169,7 +199,7 @@ async def _handle_completions(request: Request):
 
     assistant_reply: str = "".join(answer_chunks).strip()
 
-    # If browser layer signals an unrecoverable error, propagate structured error
+    # ───── Error propagation from browser layer ─────
     if assistant_reply.lower().startswith("error"):
         _, _, raw_msg = assistant_reply.partition(":")
         error_msg = raw_msg.strip() or "error"
