@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from fastapi import FastAPI, Request, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from config import ENABLE_DEBUG, env  # Centralised helper loads .env at import time
@@ -53,6 +54,18 @@ _META_CLOSING_RE = re.compile(r"(</meta\s*prompt>)", re.IGNORECASE)
 # ──────────────────────────────────────────────────────────────
 
 app = FastAPI()
+
+# —— CORS middleware ——————————————————————————————————————————
+# Allow configurable origins for browser-based clients; enables
+# successful OPTIONS preflight requests to all endpoints.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[o.strip() for o in env("CORS_ALLOW_ORIGINS", "*").split(",")],
+    allow_credentials=env("CORS_ALLOW_CREDENTIALS", True, cast=bool),
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 browser_pool = BrowserSessionPool()
 
 # ──────────────────────────────────────────────────────────────
