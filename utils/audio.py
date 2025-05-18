@@ -7,7 +7,7 @@ import struct
 import sys
 from typing import Final
 
-_DURATION_DEFAULT: Final[float] = 2.0          # seconds
+_DURATION_DEFAULT: Final[float] = 1.0          # seconds
 _FREQ_DEFAULT: Final[float] = 880.0            # Hz (A5)
 
 
@@ -16,11 +16,11 @@ def play_ringtone(duration: float = _DURATION_DEFAULT,
     """
     Play a sine-wave ringtone of *duration* seconds.
 
-    Priority of playback back-ends:
+    Playback back-end priority:
 
     1. ``simpleaudio`` – portable, high-quality.
     2. ``winsound.Beep`` – Windows fallback.
-    3. Silently no-op if both fail.
+    3. Silent no-op if both fail.
 
     Execution blocks until playback finishes so tones never overlap.
     """
