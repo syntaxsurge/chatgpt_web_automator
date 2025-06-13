@@ -335,6 +335,10 @@
     },
     {
       "object": "model",
+      "id": "o3-pro"
+    },
+    {
+      "object": "model",
       "id": "gpt-4-5"
     },
     {
