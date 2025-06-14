@@ -1,5 +1,3 @@
-"""Cross-platform ringtone helper."""
-
 from __future__ import annotations
 
 import math

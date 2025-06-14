@@ -1,13 +1,3 @@
-"""
-FastAPI proxy converting OpenAI-style chat completion and model requests into
-browser automation jobs and returning compatible JSON responses.
-
-Canonical endpoints are **/chat/completions** and **/models** – any version-
-prefixed paths (e.g. /v1/chat/completions, /v3/models, /version42/…) are
-transparently redirected via HTTP 307 so the original request method and body
-are preserved.
-"""
-
 from __future__ import annotations
 
 import json

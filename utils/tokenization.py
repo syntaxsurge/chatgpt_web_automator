@@ -1,11 +1,3 @@
-"""
-Tokenisation utilities.
-
-Provides :func:`num_tokens` which returns the number of tokens for a given
-piece of text, using the model-specific encoding when available and falling
-back to ``cl100k_base`` otherwise.
-"""
-
 from __future__ import annotations
 
 from typing import Optional

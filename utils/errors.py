@@ -1,10 +1,3 @@
-"""
-Robust error-handling helpers for browser session validation.
-
-The logic detects ChatGPT UI error bubbles and classifies them so that the
-automation layer can decide whether to retry or abort.
-"""
-
 from __future__ import annotations
 
 from enum import Enum
