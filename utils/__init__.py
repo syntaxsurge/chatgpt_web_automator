@@ -1,2 +1,2 @@
-"""Utility subpackage for shared helpers."""
-__all__ = ["tokenization", "audio"]
+"""Utility subpackage exposing shared helpers."""
+__all__ = ["tokenization", "audio", "chat_backend"]

@@ -10,28 +10,25 @@ from typing import List
 from automator.web_automator import ChatGPTWebAutomator
 from config import env
 from utils.audio import play_ringtone
+from utils.chat_backend import ChatBackendClient
 from utils.errors import ErrorType, detect_error
 
-# Maximum number of automatic retries for ChatGPT network-error bubbles
 _MAX_NETWORK_ERROR_RETRIES: int = env("NETWORK_ERROR_RETRIES", 0, cast=int)
-# Toggle confirmation tone after successful replies
 _ENABLE_RINGTONES: bool = env("ENABLE_RINGTONES", True, cast=bool)
-# Duration of the confirmation tone in seconds
 _RINGTONE_DURATION: float = env("RINGTONE_DURATION", 1.0, cast=float)
 
 
 class BrowserSession:
     """
-    Thin wrapper around a single ChatGPTWebAutomator instance.
-
-    The internal lock guarantees that only *one* prompt is processed at a
-    time; additional callers are automatically queued until the current
-    interaction completes.
+    Handles one Chrome instance; submits prompts sequentially but releases the
+    browser lock immediately after obtaining the conversation ID so that
+    backend polling can proceed in parallel with new prompts.
     """
 
     def __init__(self) -> None:
         self.session_id: str = str(uuid.uuid4())
-        self._client: ChatGPTWebAutomator = ChatGPTWebAutomator()
+        self._client = ChatGPTWebAutomator()
+        self._backend = ChatBackendClient()
         self._lock = threading.Lock()
         self.last_used_at: float = time.monotonic()
 
@@ -41,64 +38,54 @@ class BrowserSession:
 
     def ask(self, prompt: str, model: str | None = None) -> List[str]:
         """
-        Send *prompt* to ChatGPT (using the specified *model*) and block until
-        the full reply is streamed.
+        Submit *prompt* and return the assistant reply once the backend API
+        reports ``finished_successfully``.
 
-        All calls are serialised behind a lock so that exactly one browser
-        interaction happens at a time.
-
-        Any exception or recognised error type is **always** printed to
-        ``stderr`` with a complete stack trace and context, regardless of the
-        global debug flag.
+        A unique UUID tag is embedded so the assistant can echo it if desired.
         """
         attempts = 0
-        with self._lock:
-            while True:
-                self.last_used_at = time.monotonic()
+        while True:
+            uid = str(uuid.uuid4())
+            tagged_prompt = f"{prompt}\n<chatName=\"Request\" uChatId=\"{uid}\"/>"
 
-                try:
-                    # Always start a brand-new conversation so replies don’t bleed.
+            try:
+                # —— browser interaction (serialised) ————————————
+                with self._lock:
+                    self.last_used_at = time.monotonic()
                     self._client.open_new_chat(model)
-                    chunks = self._client.send_message(prompt)
-                except Exception:  # pragma: no cover – runtime failure
-                    print("\n" + "=" * 80, file=sys.stderr)
-                    print("Exception in BrowserSession.ask", file=sys.stderr)
-                    traceback.print_exc(file=sys.stderr)
-                    print("=" * 80 + "\n", file=sys.stderr)
-                    last_chunk = chunks[-1] if "chunks" in locals() and chunks else "network error"
-                    return [f"error: {last_chunk}"]
+                    chat_id = self._client.send_prompt(tagged_prompt)
 
-                error_type = detect_error(chunks)
+                # Print mapping for log/debug purposes
+                print(f"{uid}={chat_id}")
 
-                # —— unrecoverable errors ————————————————————————
-                if error_type in {ErrorType.LENGTH, ErrorType.GENERIC}:
-                    last_chunk = chunks[-1] if chunks else ""
-                    print(
-                        f"Unrecoverable error detected: {error_type.name}. "
-                        f"Last chunk: {last_chunk}",
-                        file=sys.stderr,
-                    )
-                    return [f"error: {last_chunk or error_type.name.lower()}"]
+                # —— backend polling (runs without browser lock) ———
+                assistant_text = self._backend.wait_for_completion(chat_id)
+                chunks = [assistant_text]
 
-                # —— network errors (optional retry) —————————————————
-                if error_type == ErrorType.NETWORK:
-                    last_chunk = chunks[-1] if chunks else ""
-                    print(
-                        f"Network error detected "
-                        f"(attempt {attempts + 1}/{_MAX_NETWORK_ERROR_RETRIES}). "
-                        f"Last chunk: {last_chunk}",
-                        file=sys.stderr,
-                    )
-                    if _MAX_NETWORK_ERROR_RETRIES and attempts < _MAX_NETWORK_ERROR_RETRIES:
-                        attempts += 1
-                        continue
-                    return [f"error: {last_chunk or error_type.name.lower()}"]
+            except TimeoutError as exc:
+                print(f"Timeout waiting for backend reply: {exc}", file=sys.stderr)
+                return [f"error: {exc}"]
 
-                # —— success ————————————————————————————————
-                if _ENABLE_RINGTONES:
-                    play_ringtone(duration=_RINGTONE_DURATION)  # configurable confirmation tone
-                return chunks
+            except Exception:  # pragma: no cover – unexpected failure
+                print("\n" + "=" * 80, file=sys.stderr)
+                print("Exception in BrowserSession.ask", file=sys.stderr)
+                traceback.print_exc(file=sys.stderr)
+                print("=" * 80 + "\n", file=sys.stderr)
+                if attempts < _MAX_NETWORK_ERROR_RETRIES:
+                    attempts += 1
+                    continue
+                return ["error: unexpected failure"]
+
+            # —— error classification ——————————————————————
+            error_type = detect_error(chunks)
+            if error_type != ErrorType.NONE:
+                return [f"error: {chunks[-1]}"]
+
+            # —— success ————————————————————————————————
+            if _ENABLE_RINGTONES:
+                play_ringtone(duration=_RINGTONE_DURATION)
+            return chunks
 
     def shutdown(self) -> None:
-        """Close the underlying Chrome instance."""
+        """Terminate the underlying Chrome session."""
         self._client.quit()
