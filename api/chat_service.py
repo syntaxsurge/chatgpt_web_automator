@@ -115,8 +115,10 @@ async def _handle_completions(request: Request):
     try:
         payload: dict = await request.json()
     except ValueError:
+        error_content = {"error": {"message": "Invalid JSON"}}
+        print(error_content)
         return JSONResponse(
-            {"error": {"message": "Invalid JSON"}},
+            error_content,
             status_code=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -170,24 +172,27 @@ async def _handle_completions(request: Request):
             else:
                 messages[-1]["content"] = f"{last_content}\n{combined}"
 
-    # else: keep – no modification
-
     # ───── Flatten messages into a single prompt string ─────
     prompt_string: str = "\n".join(m["content"] for m in messages)
 
     model: Optional[str] = payload.get("model")
     if payload.get("stream", False):
+        error_content = {"error": {"message": "stream=True not supported"}}
+        print(error_content)
         return JSONResponse(
-            {"error": {"message": "stream=True not supported"}}, status_code=501
+            error_content,
+            status_code=501
         )
 
     # ───── Forward prompt to browser worker pool ─────
     try:
         result = await browser_pool.ask_async(prompt_string, model, _REQUEST_TIMEOUT_SECONDS)
         answer_chunks: List[str] = result["answer"]
-    except Exception as exc:  # pragma: no cover
+    except Exception as exc:
+        error_content = {"error": {"message": f"Browser worker error: {exc}"}},
+        print(error_content)
         return JSONResponse(
-            {"error": {"message": f"Browser worker error: {exc}"}},
+            error_content,
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
