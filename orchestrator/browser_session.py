@@ -36,12 +36,10 @@ class BrowserSession:
     # public API
     # ──────────────────────────────────────────────────────────
 
-    def ask(self, prompt: str, model: str | None = None) -> List[str]:
+    def ask(self, prompt: str, model: str | None = None, timeout_seconds: float = 7_200.0) -> List[str]:
         """
         Submit *prompt* and return the assistant reply once the backend API
-        reports ``finished_successfully``.
-
-        A unique UUID tag is embedded so the assistant can echo it if desired.
+        reports ``finished_successfully`` within *timeout_seconds*.
         """
         attempts = 0
         while True:
@@ -59,7 +57,7 @@ class BrowserSession:
                 print(f"{uid}={chat_id}")
 
                 # —— backend polling (runs without browser lock) ———
-                assistant_text = self._backend.wait_for_completion(chat_id)
+                assistant_text = self._backend.wait_for_completion(chat_id, timeout_seconds=timeout_seconds)
                 chunks = [assistant_text]
 
             except TimeoutError as exc:

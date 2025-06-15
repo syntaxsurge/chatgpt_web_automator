@@ -2,6 +2,7 @@ import threading
 from typing import Dict, List
 
 from anyio import to_thread
+
 from orchestrator.browser_session import BrowserSession
 
 
@@ -38,12 +39,13 @@ class BrowserSessionPool:
     # public API
     # ──────────────────────────────────────────────────────────
 
-    def ask(self, prompt: str, model: str | None = None) -> Dict[str, List[str] | str]:
+    def ask(self, prompt: str, model: str | None = None, timeout_seconds: float = 7_200.0) -> Dict[
+        str, List[str] | str]:
         session = self._ensure_session()
-        answer_chunks = session.ask(prompt, model)  # queued via session lock
+        answer_chunks = session.ask(prompt, model, timeout_seconds)  # queued via session lock
         return {"browser_id": session.session_id, "answer": answer_chunks}
 
-    async def ask_async(self, prompt: str, model: str | None = None):
+    async def ask_async(self, prompt: str, model: str | None = None, timeout_seconds: float = 7_200.0):
         return await to_thread.run_sync(
-            self.ask, prompt, model, cancellable=True
+            self.ask, prompt, model, timeout_seconds, cancellable=True
         )

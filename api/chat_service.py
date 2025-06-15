@@ -24,6 +24,7 @@ _logger = logging.getLogger(__name__)
 if ENABLE_DEBUG and not logging.getLogger().handlers:
     logging.basicConfig(level=logging.DEBUG, format="%(levelname)s | %(message)s")
 
+
 # ──────────────────────────────────────────────────────────────
 #  Helper utilities
 # ──────────────────────────────────────────────────────────────
@@ -64,6 +65,7 @@ def _content_to_str(content: Any) -> str:
 
 ROOT_DIR: Path = Path(__file__).resolve().parent.parent
 ASSETS_DIR: Path = ROOT_DIR / "assets"
+_REQUEST_TIMEOUT_SECONDS: float = env("API_REQUEST_TIMEOUT_SECONDS", 7_200.0, cast=float)
 
 with open(ASSETS_DIR / "fallback_models.json", encoding="utf-8") as fh:
     FALLBACK_MODELS: dict = json.load(fh)
@@ -89,6 +91,7 @@ app.add_middleware(
 )
 
 browser_pool = BrowserSessionPool()
+
 
 # ──────────────────────────────────────────────────────────────
 #  Core handler (unversioned chat completions)
@@ -180,7 +183,7 @@ async def _handle_completions(request: Request):
 
     # ───── Forward prompt to browser worker pool ─────
     try:
-        result = await browser_pool.ask_async(prompt_string, model)
+        result = await browser_pool.ask_async(prompt_string, model, _REQUEST_TIMEOUT_SECONDS)
         answer_chunks: List[str] = result["answer"]
     except Exception as exc:  # pragma: no cover
         return JSONResponse(
