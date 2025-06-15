@@ -54,7 +54,7 @@ def _content_text(msg: Dict[str, Any]) -> str:
         return "\n".join(content.get("parts", [])).strip()
     if ctype == "execution_output":
         return content.get("text", "").strip()
-    if ctype == "thoughts":  # interim chain-of-thought message – ignore
+    if ctype == "thoughts" or ctype == "reasoning_recap":  # interim chain-of-thought message – ignore
         return ""
     return str(content).strip()
 
